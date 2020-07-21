@@ -154,7 +154,7 @@ static int read_one_commit(struct oidset *commits, struct progress *progress,
 			   NULL, 0);
 	if (!result)
 		return error(_("invalid object: %s"), hash);
-	else if (object_as_type(the_repository, result, OBJ_COMMIT, 1))
+	else if (object_as_type(result, OBJ_COMMIT, 1))
 		oidset_insert(commits, &result->oid);
 
 	display_progress(progress, oidset_size(commits));
@@ -251,7 +251,7 @@ static int graph_write(int argc, const char **argv)
 			}
 		}
 
-
+		stop_progress(&progress);
 	}
 
 	if (write_commit_graph(odb,
@@ -264,8 +264,6 @@ static int graph_write(int argc, const char **argv)
 cleanup:
 	string_list_clear(&pack_indexes, 0);
 	strbuf_release(&buf);
-	if (progress)
-		stop_progress(&progress);
 	return result;
 }
 

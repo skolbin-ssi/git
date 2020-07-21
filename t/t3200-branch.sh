@@ -402,7 +402,7 @@ EOF
 
 mv .git/config .git/config-saved
 
-test_expect_success 'git branch -m q q2 without config should succeed' '
+test_expect_success SHA1 'git branch -m q q2 without config should succeed' '
 	git branch -m q q2 &&
 	git branch -m q2 q
 '
@@ -870,7 +870,7 @@ test_expect_success '--set-upstream-to fails on locked config' '
 	>.git/config.lock &&
 	git branch locked &&
 	test_must_fail git branch --set-upstream-to locked 2>err &&
-	test_i18ngrep "could not lock config file .git/config: File exists" err
+	test_i18ngrep "could not lock config file .git/config" err
 '
 
 test_expect_success 'use --set-upstream-to modify HEAD' '
@@ -901,7 +901,7 @@ test_expect_success '--unset-upstream should fail if config is locked' '
 	git branch --set-upstream-to locked &&
 	>.git/config.lock &&
 	test_must_fail git branch --unset-upstream 2>err &&
-	test_i18ngrep "could not lock config file .git/config: File exists" err
+	test_i18ngrep "could not lock config file .git/config" err
 '
 
 test_expect_success 'test --unset-upstream on HEAD' '
