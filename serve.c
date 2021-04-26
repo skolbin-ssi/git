@@ -3,10 +3,12 @@
 #include "config.h"
 #include "pkt-line.h"
 #include "version.h"
-#include "argv-array.h"
+#include "strvec.h"
 #include "ls-refs.h"
 #include "serve.h"
 #include "upload-pack.h"
+
+static int advertise_sid;
 
 static int always_advertise(struct repository *r,
 			    struct strbuf *value)
@@ -27,6 +29,15 @@ static int object_format_advertise(struct repository *r,
 {
 	if (value)
 		strbuf_addstr(value, r->hash_algo->name);
+	return 1;
+}
+
+static int session_id_advertise(struct repository *r, struct strbuf *value)
+{
+	if (!advertise_sid)
+		return 0;
+	if (value)
+		strbuf_addstr(value, trace2_session_id());
 	return 1;
 }
 
@@ -56,16 +67,17 @@ struct protocol_capability {
 	 * This field should be NULL for capabilities which are not commands.
 	 */
 	int (*command)(struct repository *r,
-		       struct argv_array *keys,
+		       struct strvec *keys,
 		       struct packet_reader *request);
 };
 
 static struct protocol_capability capabilities[] = {
 	{ "agent", agent_advertise, NULL },
-	{ "ls-refs", always_advertise, ls_refs },
+	{ "ls-refs", ls_refs_advertise, ls_refs },
 	{ "fetch", upload_pack_advertise, upload_pack_v2 },
 	{ "server-option", always_advertise, NULL },
 	{ "object-format", object_format_advertise, NULL },
+	{ "session-id", session_id_advertise, NULL },
 };
 
 static void advertise_capabilities(void)
@@ -142,13 +154,13 @@ static int is_command(const char *key, struct protocol_capability **command)
 	return 0;
 }
 
-int has_capability(const struct argv_array *keys, const char *capability,
+int has_capability(const struct strvec *keys, const char *capability,
 		   const char **value)
 {
 	int i;
-	for (i = 0; i < keys->argc; i++) {
+	for (i = 0; i < keys->nr; i++) {
 		const char *out;
-		if (skip_prefix(keys->argv[i], capability, &out) &&
+		if (skip_prefix(keys->v[i], capability, &out) &&
 		    (!*out || *out == '=')) {
 			if (value) {
 				if (*out == '=')
@@ -162,7 +174,7 @@ int has_capability(const struct argv_array *keys, const char *capability,
 	return 0;
 }
 
-static void check_algorithm(struct repository *r, struct argv_array *keys)
+static void check_algorithm(struct repository *r, struct strvec *keys)
 {
 	int client = GIT_HASH_SHA1, server = hash_algo_by_ptr(r->hash_algo);
 	const char *algo_name;
@@ -187,8 +199,9 @@ static int process_request(void)
 {
 	enum request_state state = PROCESS_REQUEST_KEYS;
 	struct packet_reader reader;
-	struct argv_array keys = ARGV_ARRAY_INIT;
+	struct strvec keys = STRVEC_INIT;
 	struct protocol_capability *command = NULL;
+	const char *client_sid;
 
 	packet_reader_init(&reader, 0, NULL, 0,
 			   PACKET_READ_CHOMP_NEWLINE |
@@ -211,7 +224,7 @@ static int process_request(void)
 			/* collect request; a sequence of keys and values */
 			if (is_command(reader.line, &command) ||
 			    is_valid_capability(reader.line))
-				argv_array_push(&keys, reader.line);
+				strvec_push(&keys, reader.line);
 			else
 				die("unknown capability '%s'", reader.line);
 
@@ -223,7 +236,7 @@ static int process_request(void)
 			 * If no command and no keys were given then the client
 			 * wanted to terminate the connection.
 			 */
-			if (!keys.argc)
+			if (!keys.nr)
 				return 1;
 
 			/*
@@ -252,15 +265,20 @@ static int process_request(void)
 
 	check_algorithm(the_repository, &keys);
 
+	if (has_capability(&keys, "session-id", &client_sid))
+		trace2_data_string("transfer", NULL, "client-sid", client_sid);
+
 	command->command(the_repository, &keys, &reader);
 
-	argv_array_clear(&keys);
+	strvec_clear(&keys);
 	return 0;
 }
 
 /* Main serve loop for protocol version 2 */
 void serve(struct serve_options *options)
 {
+	git_config_get_bool("transfer.advertisesid", &advertise_sid);
+
 	if (options->advertise_capabilities || !options->stateless_rpc) {
 		/* serve by default supports v2 */
 		packet_write_fmt(1, "version 2\n");

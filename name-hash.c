@@ -7,6 +7,7 @@
  */
 #include "cache.h"
 #include "thread-utils.h"
+#include "trace2.h"
 
 struct dir_entry {
 	struct hashmap_entry ent;
@@ -224,7 +225,7 @@ static void init_dir_mutex(void)
 {
 	int j;
 
-	lazy_dir_mutex_array = xcalloc(LAZY_MAX_MUTEX, sizeof(pthread_mutex_t));
+	CALLOC_ARRAY(lazy_dir_mutex_array, LAZY_MAX_MUTEX);
 
 	for (j = 0; j < LAZY_MAX_MUTEX; j++)
 		init_recursive_mutex(&lazy_dir_mutex_array[j]);
@@ -513,9 +514,9 @@ static void threaded_lazy_init_name_hash(
 	k_start = 0;
 	nr_each = DIV_ROUND_UP(istate->cache_nr, lazy_nr_dir_threads);
 
-	lazy_entries = xcalloc(istate->cache_nr, sizeof(struct lazy_entry));
-	td_dir = xcalloc(lazy_nr_dir_threads, sizeof(struct lazy_dir_thread_data));
-	td_name = xcalloc(1, sizeof(struct lazy_name_thread_data));
+	CALLOC_ARRAY(lazy_entries, istate->cache_nr);
+	CALLOC_ARRAY(td_dir, lazy_nr_dir_threads);
+	CALLOC_ARRAY(td_name, 1);
 
 	init_dir_mutex();
 
@@ -577,6 +578,7 @@ static void lazy_init_name_hash(struct index_state *istate)
 	if (istate->name_hash_initialized)
 		return;
 	trace_performance_enter();
+	trace2_region_enter("index", "name-hash-init", istate->repo);
 	hashmap_init(&istate->name_hash, cache_entry_cmp, NULL, istate->cache_nr);
 	hashmap_init(&istate->dir_hash, dir_entry_cmp, NULL, istate->cache_nr);
 
@@ -597,6 +599,7 @@ static void lazy_init_name_hash(struct index_state *istate)
 	}
 
 	istate->name_hash_initialized = 1;
+	trace2_region_leave("index", "name-hash-init", istate->repo);
 	trace_performance_leave("initialize name hash");
 }
 
@@ -726,6 +729,6 @@ void free_name_hash(struct index_state *istate)
 		return;
 	istate->name_hash_initialized = 0;
 
-	hashmap_free(&istate->name_hash);
-	hashmap_free_entries(&istate->dir_hash, struct dir_entry, ent);
+	hashmap_clear(&istate->name_hash);
+	hashmap_clear_and_free(&istate->dir_hash, struct dir_entry, ent);
 }

@@ -5,7 +5,11 @@
 
 test_description='Various diff formatting options'
 
+GIT_TEST_DEFAULT_INITIAL_BRANCH_NAME=master
+export GIT_TEST_DEFAULT_INITIAL_BRANCH_NAME
+
 . ./test-lib.sh
+. "$TEST_DIRECTORY"/lib-diff.sh
 
 test_expect_success setup '
 
@@ -117,12 +121,12 @@ test_expect_success setup '
 
 : <<\EOF
 ! [initial] Initial
- * [master] Merge branch 'side' into master
+ * [master] Merge branch 'side'
   ! [rearrange] Rearranged lines in dir/sub
    ! [side] Side
 ----
   +  [rearrange] Rearranged lines in dir/sub
- -   [master] Merge branch 'side' into master
+ -   [master] Merge branch 'side'
  * + [side] Side
  *   [master^] Third
  *   [master~2] Second
@@ -130,32 +134,51 @@ test_expect_success setup '
 EOF
 
 process_diffs () {
-	_x04="[0-9a-f][0-9a-f][0-9a-f][0-9a-f]" &&
-	_x07="$_x05[0-9a-f][0-9a-f]" &&
-	sed -e "s/$OID_REGEX/$ZERO_OID/g" \
-	    -e "s/From $_x40 /From $ZERO_OID /" \
-	    -e "s/from $_x40)/from $ZERO_OID)/" \
-	    -e "s/commit $_x40\$/commit $ZERO_OID/" \
-	    -e "s/commit $_x40 (/commit $ZERO_OID (/" \
-	    -e "s/$_x40 $_x40 $_x40/$ZERO_OID $ZERO_OID $ZERO_OID/" \
-	    -e "s/$_x40 $_x40 /$ZERO_OID $ZERO_OID /" \
-	    -e "s/^$_x40 $_x40$/$ZERO_OID $ZERO_OID/" \
-	    -e "s/^$_x40 /$ZERO_OID /" \
-	    -e "s/^$_x40$/$ZERO_OID/" \
-	    -e "s/$_x07\.\.$_x07/fffffff..fffffff/g" \
-	    -e "s/$_x07,$_x07\.\.$_x07/fffffff,fffffff..fffffff/g" \
-	    -e "s/$_x07 $_x07 $_x07/fffffff fffffff fffffff/g" \
-	    -e "s/$_x07 $_x07 /fffffff fffffff /g" \
-	    -e "s/Merge: $_x07 $_x07/Merge: fffffff fffffff/g" \
-	    -e "s/$_x07\.\.\./fffffff.../g" \
-	    -e "s/ $_x04\.\.\./ ffff.../g" \
-	    -e "s/ $_x04/ ffff/g" \
-	    "$1"
+	perl -e '
+		my $oid_length = length($ARGV[0]);
+		my $x40 = "[0-9a-f]{40}";
+		my $xab = "[0-9a-f]{4,16}";
+		my $orx = "[0-9a-f]" x $oid_length;
+
+		sub munge_oid {
+			my ($oid) = @_;
+			my $x;
+
+			return "" unless length $oid;
+
+			if ($oid =~ /^(100644|100755|120000)$/) {
+				return $oid;
+			}
+
+			if ($oid =~ /^0*$/) {
+				$x = "0";
+			} else {
+				$x = "f";
+			}
+
+			if (length($oid) == 40) {
+				return $x x $oid_length;
+			} else {
+				return $x x length($oid);
+			}
+		}
+
+		while (<STDIN>) {
+			s/($orx)/munge_oid($1)/ge;
+			s/From ($x40)( |\))/"From " . munge_oid($1) . $2/ge;
+			s/commit ($x40)($| \(from )($x40?)/"commit " .  munge_oid($1) . $2 . munge_oid($3)/ge;
+			s/\b($x40)( |\.\.|$)/munge_oid($1) . $2/ge;
+			s/^($x40)($| )/munge_oid($1) . $2/e;
+			s/($xab)(\.\.|,| |\.\.\.|$)/munge_oid($1) . $2/ge;
+			print;
+		}
+	' "$ZERO_OID" <"$1"
 }
 
 V=$(git version | sed -e 's/^git version //' -e 's/\./\\./g')
 while read magic cmd
 do
+	status=success
 	case "$magic" in
 	'' | '#'*)
 		continue ;;
@@ -164,6 +187,10 @@ do
 		label="$magic-$cmd"
 		case "$magic" in
 		noellipses) ;;
+		failure)
+			status=failure
+			magic=
+			label="$cmd" ;;
 		*)
 			BUG "unknown magic $magic" ;;
 		esac ;;
@@ -176,7 +203,7 @@ do
 	expect="$TEST_DIRECTORY/t4013/diff.$test"
 	actual="$pfx-diff.$test"
 
-	test_expect_success "git $cmd # magic is ${magic:-(not used)}" '
+	test_expect_$status "git $cmd # magic is ${magic:-(not used)}" '
 		{
 			echo "$ git $cmd"
 			case "$magic" in
@@ -195,7 +222,7 @@ do
 			process_diffs "$expect" >expect &&
 			case $cmd in
 			*format-patch* | *-stat*)
-				test_i18ncmp expect actual;;
+				test_cmp expect actual;;
 			*)
 				test_cmp expect actual;;
 			esac &&
@@ -221,6 +248,9 @@ diff-tree --root -r --abbrev=4 initial
 :noellipses diff-tree --root -r --abbrev=4 initial
 diff-tree -p initial
 diff-tree --root -p initial
+diff-tree --root -p --abbrev=10 initial
+diff-tree --root -p --full-index initial
+diff-tree --root -p --full-index --abbrev=10 initial
 diff-tree --patch-with-stat initial
 diff-tree --root --patch-with-stat initial
 diff-tree --patch-with-raw initial
@@ -297,9 +327,16 @@ log --root --patch-with-stat --summary master
 log --root -c --patch-with-stat --summary master
 # improved by Timo's patch
 log --root --cc --patch-with-stat --summary master
+log --no-diff-merges -p --first-parent master
+log --diff-merges=off -p --first-parent master
+log --first-parent --diff-merges=off -p master
 log -p --first-parent master
+log -p --diff-merges=first-parent master
+log --diff-merges=first-parent master
 log -m -p --first-parent master
 log -m -p master
+log --cc -m -p master
+log -c -m -p master
 log -SF master
 log -S F master
 log -SF -p master
@@ -309,6 +346,7 @@ log -SF master --max-count=2
 log -GF master
 log -GF -p master
 log -GF -p --pickaxe-all master
+log -IA -IB -I1 -I2 -p master
 log --decorate --all
 log --decorate=full --all
 
@@ -447,6 +485,45 @@ test_expect_success 'diff-tree --stdin with log formatting' '
 	EOF
 	git rev-list master | git diff-tree --stdin --format=%s -s >actual &&
 	test_cmp expect actual
+'
+
+test_expect_success 'diff -I<regex>: setup' '
+	git checkout master &&
+	test_seq 50 >file0 &&
+	git commit -m "Set up -I<regex> test file" file0 &&
+	test_seq 50 | sed -e "s/13/ten and three/" -e "/7\$/d" >file0 &&
+	echo >>file0
+'
+test_expect_success 'diff -I<regex>' '
+	git diff --ignore-blank-lines -I"ten.*e" -I"^[124-9]" >actual &&
+	cat >expect <<-\EOF &&
+	diff --git a/file0 b/file0
+	--- a/file0
+	+++ b/file0
+	@@ -34,7 +31,6 @@
+	 34
+	 35
+	 36
+	-37
+	 38
+	 39
+	 40
+	EOF
+	compare_diff_patch expect actual
+'
+
+test_expect_success 'diff -I<regex> --stat' '
+	git diff --stat --ignore-blank-lines -I"ten.*e" -I"^[124-9]" >actual &&
+	cat >expect <<-\EOF &&
+	 file0 | 1 -
+	 1 file changed, 1 deletion(-)
+	EOF
+	test_cmp expect actual
+'
+
+test_expect_success 'diff -I<regex>: detect malformed regex' '
+	test_expect_code 129 git diff --ignore-matching-lines="^[124-9" 2>error &&
+	test_i18ngrep "invalid regex given to -I: " error
 '
 
 test_done

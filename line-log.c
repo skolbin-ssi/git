@@ -14,7 +14,7 @@
 #include "graph.h"
 #include "userdiff.h"
 #include "line-log.h"
-#include "argv-array.h"
+#include "strvec.h"
 #include "bloom.h"
 
 static void range_set_grow(struct range_set *rs, size_t extra)
@@ -296,7 +296,7 @@ static void line_log_data_insert(struct line_log_data **list,
 		return;
 	}
 
-	p = xcalloc(1, sizeof(struct line_log_data));
+	CALLOC_ARRAY(p, 1);
 	p->path = path;
 	range_set_append(&p->ranges, begin, end);
 	if (ip) {
@@ -481,7 +481,7 @@ static struct commit *check_single_commit(struct rev_info *revs)
 		if (obj->flags & UNINTERESTING)
 			continue;
 		obj = deref_tag(revs->repo, obj, NULL, 0);
-		if (obj->type != OBJ_COMMIT)
+		if (!obj || obj->type != OBJ_COMMIT)
 			die("Non commit %s?", revs->pending.objects[i].name);
 		if (commit)
 			die("More than one commit to dig from: %s and %s?",
@@ -758,12 +758,12 @@ static void parse_pathspec_from_ranges(struct pathspec *pathspec,
 				       struct line_log_data *range)
 {
 	struct line_log_data *r;
-	struct argv_array array = ARGV_ARRAY_INIT;
+	struct strvec array = STRVEC_INIT;
 	const char **paths;
 
 	for (r = range; r; r = r->next)
-		argv_array_push(&array, r->path);
-	paths = argv_array_detach(&array);
+		strvec_push(&array, r->path);
+	paths = strvec_detach(&array);
 
 	parse_pathspec(pathspec, 0, PATHSPEC_PREFER_FULL, "", paths);
 	/* strings are now owned by pathspec */
@@ -1159,7 +1159,7 @@ static int bloom_filter_check(struct rev_info *rev,
 		return 1;
 
 	if (!rev->bloom_filter_settings ||
-	    !(filter = get_bloom_filter(rev->repo, commit, 0)))
+	    !(filter = get_bloom_filter(rev->repo, commit)))
 		return 1;
 
 	if (!range)

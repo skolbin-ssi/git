@@ -2,6 +2,9 @@
 
 test_description='sparse checkout builtin tests'
 
+GIT_TEST_DEFAULT_INITIAL_BRANCH_NAME=main
+export GIT_TEST_DEFAULT_INITIAL_BRANCH_NAME
+
 . ./test-lib.sh
 
 list_files() {
@@ -117,7 +120,7 @@ test_expect_success 'interaction with clone --no-checkout (unborn index)' '
 	test_path_is_missing clone_no_checkout/.git/index &&
 
 	# No branch is checked out until we manually switch to one
-	git -C clone_no_checkout switch master &&
+	git -C clone_no_checkout switch main &&
 	test_path_is_file clone_no_checkout/.git/index &&
 	check_files clone_no_checkout a folder1
 '
@@ -369,7 +372,7 @@ test_expect_success 'sparse-checkout (init|set|disable) warns with unmerged stat
 	git clone repo unmerged &&
 
 	cat >input <<-EOF &&
-	0 0000000000000000000000000000000000000000	folder1/a
+	0 $ZERO_OID	folder1/a
 	100644 $(git -C unmerged rev-parse HEAD:folder1/a) 1	folder1/a
 	EOF
 	git -C unmerged update-index --index-info <input &&
@@ -396,7 +399,7 @@ test_expect_success 'sparse-checkout reapply' '
 	echo dirty >tweak/deep/deeper2/a &&
 
 	cat >input <<-EOF &&
-	0 0000000000000000000000000000000000000000	folder1/a
+	0 $ZERO_OID	folder1/a
 	100644 $(git -C tweak rev-parse HEAD:folder1/a) 1	folder1/a
 	EOF
 	git -C tweak update-index --index-info <input &&

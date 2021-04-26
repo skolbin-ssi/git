@@ -3,7 +3,7 @@
 #include "dir.h"
 #include "pathspec.h"
 #include "attr.h"
-#include "argv-array.h"
+#include "strvec.h"
 #include "quote.h"
 
 /*
@@ -154,7 +154,7 @@ static void parse_pathspec_attr_match(struct pathspec_item *item, const char *va
 	string_list_remove_empty_items(&list, 0);
 
 	item->attr_check = attr_check_alloc();
-	item->attr_match = xcalloc(list.nr, sizeof(struct attr_match));
+	CALLOC_ARRAY(item->attr_match, list.nr);
 
 	for_each_string_list_item(si, &list) {
 		size_t attr_len;
@@ -561,7 +561,7 @@ void parse_pathspec(struct pathspec *pathspec,
 		if (!(flags & PATHSPEC_PREFER_CWD))
 			BUG("PATHSPEC_PREFER_CWD requires arguments");
 
-		pathspec->items = item = xcalloc(1, sizeof(*item));
+		pathspec->items = CALLOC_ARRAY(item, 1);
 		item->match = xstrdup(prefix);
 		item->original = xstrdup(prefix);
 		item->nowildcard_len = item->len = strlen(prefix);
@@ -624,7 +624,7 @@ void parse_pathspec_file(struct pathspec *pathspec, unsigned magic_mask,
 			 unsigned flags, const char *prefix,
 			 const char *file, int nul_term_line)
 {
-	struct argv_array parsed_file = ARGV_ARRAY_INIT;
+	struct strvec parsed_file = STRVEC_INIT;
 	strbuf_getline_fn getline_fn = nul_term_line ? strbuf_getline_nul :
 						       strbuf_getline;
 	struct strbuf buf = STRBUF_INIT;
@@ -643,7 +643,7 @@ void parse_pathspec_file(struct pathspec *pathspec, unsigned magic_mask,
 				die(_("line is badly quoted: %s"), buf.buf);
 			strbuf_swap(&buf, &unquoted);
 		}
-		argv_array_push(&parsed_file, buf.buf);
+		strvec_push(&parsed_file, buf.buf);
 		strbuf_reset(&buf);
 	}
 
@@ -652,8 +652,8 @@ void parse_pathspec_file(struct pathspec *pathspec, unsigned magic_mask,
 	if (in != stdin)
 		fclose(in);
 
-	parse_pathspec(pathspec, magic_mask, flags, prefix, parsed_file.argv);
-	argv_array_clear(&parsed_file);
+	parse_pathspec(pathspec, magic_mask, flags, prefix, parsed_file.v);
+	strvec_clear(&parsed_file);
 }
 
 void copy_pathspec(struct pathspec *dst, const struct pathspec *src)

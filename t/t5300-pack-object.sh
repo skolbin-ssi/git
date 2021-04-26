@@ -12,8 +12,7 @@ TRASH=$(pwd)
 
 test_expect_success \
     'setup' \
-    'test_oid_init &&
-     rm -f .git/index* &&
+    'rm -f .git/index* &&
      perl -e "print \"a\" x 4096;" > a &&
      perl -e "print \"b\" x 4096;" > b &&
      perl -e "print \"c\" x 4096;" > c &&
@@ -428,7 +427,8 @@ test_expect_success 'index-pack --strict <pack> works in non-repo' '
 	test_path_is_file foo.idx
 '
 
-test_expect_success !PTHREADS,C_LOCALE_OUTPUT 'index-pack --threads=N or pack.threads=N warns when no pthreads' '
+test_expect_success !PTHREADS,!FAIL_PREREQS \
+	'index-pack --threads=N or pack.threads=N warns when no pthreads' '
 	test_must_fail git index-pack --threads=2 2>err &&
 	grep ^warning: err >warnings &&
 	test_line_count = 1 warnings &&
@@ -446,7 +446,8 @@ test_expect_success !PTHREADS,C_LOCALE_OUTPUT 'index-pack --threads=N or pack.th
 	grep -F "no threads support, ignoring pack.threads" err
 '
 
-test_expect_success !PTHREADS,C_LOCALE_OUTPUT 'pack-objects --threads=N or pack.threads=N warns when no pthreads' '
+test_expect_success !PTHREADS,!FAIL_PREREQS \
+	'pack-objects --threads=N or pack.threads=N warns when no pthreads' '
 	git pack-objects --threads=2 --stdout --all </dev/null >/dev/null 2>err &&
 	grep ^warning: err >warnings &&
 	test_line_count = 1 warnings &&
@@ -494,6 +495,177 @@ test_expect_success 'make sure index-pack detects the SHA1 collision (large blob
 		cd corrupt &&
 		test_must_fail git -c core.bigfilethreshold=1 index-pack -o ../bad.idx ../test-3.pack 2>msg &&
 		test_i18ngrep "SHA1 COLLISION FOUND" msg
+	)
+'
+
+test_expect_success 'prefetch objects' '
+	rm -rf server client &&
+
+	git init server &&
+	test_config -C server uploadpack.allowanysha1inwant 1 &&
+	test_config -C server uploadpack.allowfilter 1 &&
+	test_config -C server protocol.version 2 &&
+
+	echo one >server/one &&
+	git -C server add one &&
+	git -C server commit -m one &&
+	git -C server branch one_branch &&
+
+	echo two_a >server/two_a &&
+	echo two_b >server/two_b &&
+	git -C server add two_a two_b &&
+	git -C server commit -m two &&
+
+	echo three >server/three &&
+	git -C server add three &&
+	git -C server commit -m three &&
+	git -C server branch three_branch &&
+
+	# Clone, fetch "two" with blobs excluded, and re-push it. This requires
+	# the client to have the blobs of "two" - verify that these are
+	# prefetched in one batch.
+	git clone --filter=blob:none --single-branch -b one_branch \
+		"file://$(pwd)/server" client &&
+	test_config -C client protocol.version 2 &&
+	TWO=$(git -C server rev-parse three_branch^) &&
+	git -C client fetch --filter=blob:none origin "$TWO" &&
+	GIT_TRACE_PACKET=$(pwd)/trace git -C client push origin "$TWO":refs/heads/two_branch &&
+	grep "fetch> done" trace >donelines &&
+	test_line_count = 1 donelines
+'
+
+test_expect_success 'setup for --stdin-packs tests' '
+	git init stdin-packs &&
+	(
+		cd stdin-packs &&
+
+		test_commit A &&
+		test_commit B &&
+		test_commit C &&
+
+		for id in A B C
+		do
+			git pack-objects .git/objects/pack/pack-$id \
+				--incremental --revs <<-EOF
+			refs/tags/$id
+			EOF
+		done &&
+
+		ls -la .git/objects/pack
+	)
+'
+
+test_expect_success '--stdin-packs with excluded packs' '
+	(
+		cd stdin-packs &&
+
+		PACK_A="$(basename .git/objects/pack/pack-A-*.pack)" &&
+		PACK_B="$(basename .git/objects/pack/pack-B-*.pack)" &&
+		PACK_C="$(basename .git/objects/pack/pack-C-*.pack)" &&
+
+		git pack-objects test --stdin-packs <<-EOF &&
+		$PACK_A
+		^$PACK_B
+		$PACK_C
+		EOF
+
+		(
+			git show-index <$(ls .git/objects/pack/pack-A-*.idx) &&
+			git show-index <$(ls .git/objects/pack/pack-C-*.idx)
+		) >expect.raw &&
+		git show-index <$(ls test-*.idx) >actual.raw &&
+
+		cut -d" " -f2 <expect.raw | sort >expect &&
+		cut -d" " -f2 <actual.raw | sort >actual &&
+		test_cmp expect actual
+	)
+'
+
+test_expect_success '--stdin-packs is incompatible with --filter' '
+	(
+		cd stdin-packs &&
+		test_must_fail git pack-objects --stdin-packs --stdout \
+			--filter=blob:none </dev/null 2>err &&
+		test_i18ngrep "cannot use --filter with --stdin-packs" err
+	)
+'
+
+test_expect_success '--stdin-packs is incompatible with --revs' '
+	(
+		cd stdin-packs &&
+		test_must_fail git pack-objects --stdin-packs --revs out \
+			</dev/null 2>err &&
+		test_i18ngrep "cannot use internal rev list with --stdin-packs" err
+	)
+'
+
+test_expect_success '--stdin-packs with loose objects' '
+	(
+		cd stdin-packs &&
+
+		PACK_A="$(basename .git/objects/pack/pack-A-*.pack)" &&
+		PACK_B="$(basename .git/objects/pack/pack-B-*.pack)" &&
+		PACK_C="$(basename .git/objects/pack/pack-C-*.pack)" &&
+
+		test_commit D && # loose
+
+		git pack-objects test2 --stdin-packs --unpacked <<-EOF &&
+		$PACK_A
+		^$PACK_B
+		$PACK_C
+		EOF
+
+		(
+			git show-index <$(ls .git/objects/pack/pack-A-*.idx) &&
+			git show-index <$(ls .git/objects/pack/pack-C-*.idx) &&
+			git rev-list --objects --no-object-names \
+				refs/tags/C..refs/tags/D
+
+		) >expect.raw &&
+		ls -la . &&
+		git show-index <$(ls test2-*.idx) >actual.raw &&
+
+		cut -d" " -f2 <expect.raw | sort >expect &&
+		cut -d" " -f2 <actual.raw | sort >actual &&
+		test_cmp expect actual
+	)
+'
+
+test_expect_success '--stdin-packs with broken links' '
+	(
+		cd stdin-packs &&
+
+		# make an unreachable object with a bogus parent
+		git cat-file -p HEAD >commit &&
+		sed "s/$(git rev-parse HEAD^)/$(test_oid zero)/" <commit |
+		git hash-object -w -t commit --stdin >in &&
+
+		git pack-objects .git/objects/pack/pack-D <in &&
+
+		PACK_A="$(basename .git/objects/pack/pack-A-*.pack)" &&
+		PACK_B="$(basename .git/objects/pack/pack-B-*.pack)" &&
+		PACK_C="$(basename .git/objects/pack/pack-C-*.pack)" &&
+		PACK_D="$(basename .git/objects/pack/pack-D-*.pack)" &&
+
+		git pack-objects test3 --stdin-packs --unpacked <<-EOF &&
+		$PACK_A
+		^$PACK_B
+		$PACK_C
+		$PACK_D
+		EOF
+
+		(
+			git show-index <$(ls .git/objects/pack/pack-A-*.idx) &&
+			git show-index <$(ls .git/objects/pack/pack-C-*.idx) &&
+			git show-index <$(ls .git/objects/pack/pack-D-*.idx) &&
+			git rev-list --objects --no-object-names \
+				refs/tags/C..refs/tags/D
+		) >expect.raw &&
+		git show-index <$(ls test3-*.idx) >actual.raw &&
+
+		cut -d" " -f2 <expect.raw | sort >expect &&
+		cut -d" " -f2 <actual.raw | sort >actual &&
+		test_cmp expect actual
 	)
 '
 

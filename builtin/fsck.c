@@ -71,29 +71,6 @@ static const char *printable_type(const struct object_id *oid,
 	return ret;
 }
 
-static int fsck_config(const char *var, const char *value, void *cb)
-{
-	if (strcmp(var, "fsck.skiplist") == 0) {
-		const char *path;
-		struct strbuf sb = STRBUF_INIT;
-
-		if (git_config_pathname(&path, var, value))
-			return 1;
-		strbuf_addf(&sb, "skiplist=%s", path);
-		free((char *)path);
-		fsck_set_msg_types(&fsck_obj_options, sb.buf);
-		strbuf_release(&sb);
-		return 0;
-	}
-
-	if (skip_prefix(var, "fsck.", &var)) {
-		fsck_set_msg_type(&fsck_obj_options, var, value);
-		return 0;
-	}
-
-	return git_default_config(var, value, cb);
-}
-
 static int objerror(struct object *obj, const char *err)
 {
 	errors_found |= ERROR_OBJECT;
@@ -107,7 +84,9 @@ static int objerror(struct object *obj, const char *err)
 static int fsck_error_func(struct fsck_options *o,
 			   const struct object_id *oid,
 			   enum object_type object_type,
-			   int msg_type, const char *message)
+			   enum fsck_msg_type msg_type,
+			   enum fsck_msg_id msg_id,
+			   const char *message)
 {
 	switch (msg_type) {
 	case FSCK_WARN:
@@ -168,7 +147,7 @@ static int mark_object(struct object *obj, int type, void *data, struct fsck_opt
 		return 0;
 
 	if (!(obj->flags & HAS_OBJ)) {
-		if (parent && !has_object_file(&obj->oid)) {
+		if (parent && !has_object(the_repository, &obj->oid, 1)) {
 			printf_ln(_("broken link from %7s %s\n"
 				    "              to %7s %s"),
 				  printable_type(&parent->oid, parent->type),
@@ -215,7 +194,8 @@ static int traverse_reachable(void)
 	return !!result;
 }
 
-static int mark_used(struct object *obj, int type, void *data, struct fsck_options *options)
+static int mark_used(struct object *obj, enum object_type object_type,
+		     void *data, struct fsck_options *options)
 {
 	if (!obj)
 		return 1;
@@ -821,7 +801,7 @@ int cmd_fsck(int argc, const char **argv, const char *prefix)
 	if (name_objects)
 		fsck_enable_object_names(&fsck_walk_options);
 
-	git_config(fsck_config, NULL);
+	git_config(git_fsck_config, &fsck_obj_options);
 
 	if (connectivity_only) {
 		for_each_loose_object(mark_loose_for_connectivity, NULL, 0);

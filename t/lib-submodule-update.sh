@@ -144,7 +144,7 @@ create_lib_submodule_repo () {
 		git checkout -b valid_sub1 &&
 		git revert HEAD &&
 
-		git checkout master
+		git checkout "${GIT_TEST_DEFAULT_INITIAL_BRANCH_NAME-master}"
 	)
 }
 
@@ -196,7 +196,6 @@ test_git_directory_exists () {
 # the submodule repo if it doesn't exist and configures the most problematic
 # settings for diff.ignoreSubmodules.
 prolog () {
-	test_oid_init &&
 	(test -d submodule_update_repo || create_lib_submodule_repo) &&
 	test_config_global diff.ignoreSubmodules all &&
 	test_config diff.ignoreSubmodules all
@@ -317,14 +316,7 @@ test_submodule_switch_common () {
 	command="$1"
 	######################### Appearing submodule #########################
 	# Switching to a commit letting a submodule appear creates empty dir ...
-	if test "$KNOWN_FAILURE_STASH_DOES_IGNORE_SUBMODULE_CHANGES" = 1
-	then
-		# Restoring stash fails to restore submodule index entry
-		RESULT="failure"
-	else
-		RESULT="success"
-	fi
-	test_expect_$RESULT "$command: added submodule creates empty directory" '
+	test_expect_success "$command: added submodule creates empty directory" '
 		prolog &&
 		reset_work_tree_to no_submodule &&
 		(
@@ -338,6 +330,13 @@ test_submodule_switch_common () {
 		)
 	'
 	# ... and doesn't care if it already exists.
+	if test "$KNOWN_FAILURE_STASH_DOES_IGNORE_SUBMODULE_CHANGES" = 1
+	then
+		# Restoring stash fails to restore submodule index entry
+		RESULT="failure"
+	else
+		RESULT="success"
+	fi
 	test_expect_$RESULT "$command: added submodule leaves existing empty directory alone" '
 		prolog &&
 		reset_work_tree_to no_submodule &&

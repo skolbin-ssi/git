@@ -1,5 +1,5 @@
 #include "cache.h"
-#include "argv-array.h"
+#include "strvec.h"
 #include "repository.h"
 #include "config.h"
 #include "dir.h"
@@ -16,6 +16,7 @@
 #include "fsmonitor.h"
 #include "object-store.h"
 #include "promisor-remote.h"
+#include "entry.h"
 
 /*
  * Error messages expected by scripts out of plumbing commands such as
@@ -106,7 +107,7 @@ void setup_unpack_trees_porcelain(struct unpack_trees_options *opts,
 	const char **msgs = opts->msgs;
 	const char *msg;
 
-	argv_array_init(&opts->msgs_to_free);
+	strvec_init(&opts->msgs_to_free);
 
 	if (!strcmp(cmd, "checkout"))
 		msg = advice_commit_before_merge
@@ -124,7 +125,7 @@ void setup_unpack_trees_porcelain(struct unpack_trees_options *opts,
 			  "Please commit your changes or stash them before you %s.")
 		      : _("Your local changes to the following files would be overwritten by %s:\n%%s");
 	msgs[ERROR_WOULD_OVERWRITE] = msgs[ERROR_NOT_UPTODATE_FILE] =
-		argv_array_pushf(&opts->msgs_to_free, msg, cmd, cmd);
+		strvec_pushf(&opts->msgs_to_free, msg, cmd, cmd);
 
 	msgs[ERROR_NOT_UPTODATE_DIR] =
 		_("Updating the following directories would lose untracked files in them:\n%s");
@@ -145,7 +146,7 @@ void setup_unpack_trees_porcelain(struct unpack_trees_options *opts,
 			  "Please move or remove them before you %s.")
 		      : _("The following untracked working tree files would be removed by %s:\n%%s");
 	msgs[ERROR_WOULD_LOSE_UNTRACKED_REMOVED] =
-		argv_array_pushf(&opts->msgs_to_free, msg, cmd, cmd);
+		strvec_pushf(&opts->msgs_to_free, msg, cmd, cmd);
 
 	if (!strcmp(cmd, "checkout"))
 		msg = advice_commit_before_merge
@@ -163,7 +164,7 @@ void setup_unpack_trees_porcelain(struct unpack_trees_options *opts,
 			  "Please move or remove them before you %s.")
 		      : _("The following untracked working tree files would be overwritten by %s:\n%%s");
 	msgs[ERROR_WOULD_LOSE_UNTRACKED_OVERWRITTEN] =
-		argv_array_pushf(&opts->msgs_to_free, msg, cmd, cmd);
+		strvec_pushf(&opts->msgs_to_free, msg, cmd, cmd);
 
 	/*
 	 * Special case: ERROR_BIND_OVERLAP refers to a pair of paths, we
@@ -189,7 +190,7 @@ void setup_unpack_trees_porcelain(struct unpack_trees_options *opts,
 
 void clear_unpack_trees_porcelain(struct unpack_trees_options *opts)
 {
-	argv_array_clear(&opts->msgs_to_free);
+	strvec_clear(&opts->msgs_to_free);
 	memset(opts->msgs, 0, sizeof(opts->msgs));
 }
 
@@ -416,6 +417,9 @@ static int check_updates(struct unpack_trees_options *o,
 		setup_collided_checkout_detection(&state, index);
 
 	progress = get_progress(o, index);
+
+	/* Start with clean cache to avoid using any possibly outdated info. */
+	invalidate_lstat_cache();
 
 	git_attr_set_direction(GIT_ATTR_CHECKOUT);
 
@@ -1549,14 +1553,10 @@ static void mark_new_skip_worktree(struct pattern_list *pl,
 static void populate_from_existing_patterns(struct unpack_trees_options *o,
 					    struct pattern_list *pl)
 {
-	char *sparse = git_pathdup("info/sparse-checkout");
-
-	pl->use_cone_patterns = core_sparse_checkout_cone;
-	if (add_patterns_from_file_to_list(sparse, "", 0, pl, NULL) < 0)
+	if (get_sparse_checkout_patterns(pl) < 0)
 		o->skip_sparse_checkout = 1;
 	else
 		o->pl = pl;
-	free(sparse);
 }
 
 
@@ -1580,6 +1580,8 @@ int unpack_trees(unsigned len, struct tree_desc *t, struct unpack_trees_options 
 		die("unpack_trees takes at most %d trees", MAX_UNPACK_TREES);
 
 	trace_performance_enter();
+	trace2_region_enter("unpack_trees", "unpack_trees", the_repository);
+
 	if (!core_apply_sparse_checkout || !o->update)
 		o->skip_sparse_checkout = 1;
 	if (!o->skip_sparse_checkout && !o->pl) {
@@ -1611,8 +1613,8 @@ int unpack_trees(unsigned len, struct tree_desc *t, struct unpack_trees_options 
 	o->merge_size = len;
 	mark_all_ce_unused(o->src_index);
 
-	if (o->src_index->fsmonitor_last_update)
-		o->result.fsmonitor_last_update = o->src_index->fsmonitor_last_update;
+	o->result.fsmonitor_last_update =
+		xstrdup_or_null(o->src_index->fsmonitor_last_update);
 
 	/*
 	 * Sparse checkout loop #1: set NEW_SKIP_WORKTREE on existing entries
@@ -1653,7 +1655,9 @@ int unpack_trees(unsigned len, struct tree_desc *t, struct unpack_trees_options 
 		}
 
 		trace_performance_enter();
+		trace2_region_enter("unpack_trees", "traverse_trees", the_repository);
 		ret = traverse_trees(o->src_index, len, t, &info);
+		trace2_region_leave("unpack_trees", "traverse_trees", the_repository);
 		trace_performance_leave("traverse_trees");
 		if (ret < 0)
 			goto return_failed;
@@ -1722,8 +1726,6 @@ int unpack_trees(unsigned len, struct tree_desc *t, struct unpack_trees_options 
 		if (!ret) {
 			if (git_env_bool("GIT_TEST_CHECK_CACHE_TREE", 0))
 				cache_tree_verify(the_repository, &o->result);
-			if (!o->result.cache_tree)
-				o->result.cache_tree = cache_tree();
 			if (!cache_tree_fully_valid(o->result.cache_tree))
 				cache_tree_update(&o->result,
 						  WRITE_TREE_SILENT |
@@ -1741,6 +1743,7 @@ int unpack_trees(unsigned len, struct tree_desc *t, struct unpack_trees_options 
 done:
 	if (free_pattern_list)
 		clear_pattern_list(&pl);
+	trace2_region_leave("unpack_trees", "unpack_trees", the_repository);
 	trace_performance_leave("unpack_trees");
 	return ret;
 
@@ -2095,7 +2098,7 @@ static int verify_absent_1(const struct cache_entry *ce,
 	if (o->index_only || o->reset || !o->update)
 		return 0;
 
-	len = check_leading_path(ce->name, ce_namelen(ce));
+	len = check_leading_path(ce->name, ce_namelen(ce), 0);
 	if (!len)
 		return 0;
 	else if (len > 0) {
@@ -2560,4 +2563,26 @@ int oneway_merge(const struct cache_entry * const *src,
 		return 0;
 	}
 	return merged_entry(a, old, o);
+}
+
+/*
+ * Merge worktree and untracked entries in a stash entry.
+ *
+ * Ignore all index entries. Collapse remaining trees but make sure that they
+ * don't have any conflicting files.
+ */
+int stash_worktree_untracked_merge(const struct cache_entry * const *src,
+				   struct unpack_trees_options *o)
+{
+	const struct cache_entry *worktree = src[1];
+	const struct cache_entry *untracked = src[2];
+
+	if (o->merge_size != 2)
+		BUG("invalid merge_size: %d", o->merge_size);
+
+	if (worktree && untracked)
+		return error(_("worktree and untracked commit have duplicate entries: %s"),
+			     super_prefixed(worktree->name));
+
+	return merged_entry(worktree ? worktree : untracked, NULL, o);
 }
