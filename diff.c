@@ -26,6 +26,7 @@
 #include "parse-options.h"
 #include "help.h"
 #include "promisor-remote.h"
+#include "dir.h"
 
 #ifdef NO_FAST_WORKING_DIRECTORY
 #define FAST_WORKING_DIRECTORY 0
@@ -774,13 +775,13 @@ struct emitted_diff_symbol {
 	int indent_width; /* The visual width of the indentation */
 	enum diff_symbol s;
 };
-#define EMITTED_DIFF_SYMBOL_INIT {NULL}
+#define EMITTED_DIFF_SYMBOL_INIT { 0 }
 
 struct emitted_diff_symbols {
 	struct emitted_diff_symbol *buf;
 	int nr, alloc;
 };
-#define EMITTED_DIFF_SYMBOLS_INIT {NULL, 0, 0}
+#define EMITTED_DIFF_SYMBOLS_INIT { 0 }
 
 static void append_emitted_diff_symbol(struct diff_options *o,
 				       struct emitted_diff_symbol *e)
@@ -3907,6 +3908,13 @@ static int reuse_worktree_file(struct index_state *istate,
 	if (!want_file && would_convert_to_git(istate, name))
 		return 0;
 
+	/*
+	 * If this path does not match our sparse-checkout definition,
+	 * then the file will not be in the working directory.
+	 */
+	if (!path_in_sparse_checkout(name, istate))
+		return 0;
+
 	len = strlen(name);
 	pos = index_name_pos(istate, name, len);
 	if (pos < 0)
@@ -4640,7 +4648,7 @@ void diff_setup_done(struct diff_options *options)
 		die(_("-G and --pickaxe-regex are mutually exclusive, use --pickaxe-regex with -S"));
 
 	if (HAS_MULTI_BITS(options->pickaxe_opts & DIFF_PICKAXE_KINDS_ALL_OBJFIND_MASK))
-		die(_("---pickaxe-all and --find-object are mutually exclusive, use --pickaxe-all with -G and -S"));
+		die(_("--pickaxe-all and --find-object are mutually exclusive, use --pickaxe-all with -G and -S"));
 
 	/*
 	 * Most of the time we can say "there are changes"
