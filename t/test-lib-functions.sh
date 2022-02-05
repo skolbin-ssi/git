@@ -680,6 +680,17 @@ test_have_prereq () {
 			# Keep a list of missing prerequisites; restore
 			# the negative marker if necessary.
 			prerequisite=${negative_prereq:+!}$prerequisite
+
+			# Abort if this prereq was marked as required
+			if test -n "$GIT_TEST_REQUIRE_PREREQ"
+			then
+				case " $GIT_TEST_REQUIRE_PREREQ " in
+				*" $prerequisite "*)
+					BAIL_OUT "required prereq $prerequisite failed"
+					;;
+				esac
+			fi
+
 			if test -z "$missing_prereq"
 			then
 				missing_prereq=$prerequisite
@@ -1749,6 +1760,40 @@ test_subcommand () {
 }
 
 # Check that the given command was invoked as part of the
+# trace2-format trace on stdin, but without an exact set of
+# arguments.
+#
+#	test_subcommand [!] <command> <args>... < <trace>
+#
+# For example, to look for an invocation of "git pack-objects"
+# with the "--honor-pack-keep" argument, use
+#
+#	GIT_TRACE2_EVENT=event.log git repack ... &&
+#	test_subcommand git pack-objects --honor-pack-keep <event.log
+#
+# If the first parameter passed is !, this instead checks that
+# the given command was not called.
+#
+test_subcommand_inexact () {
+	local negate=
+	if test "$1" = "!"
+	then
+		negate=t
+		shift
+	fi
+
+	local expr=$(printf '"%s".*' "$@")
+	expr="${expr%,}"
+
+	if test -n "$negate"
+	then
+		! grep "\"event\":\"child_start\".*\[$expr\]"
+	else
+		grep "\"event\":\"child_start\".*\[$expr\]"
+	fi
+}
+
+# Check that the given command was invoked as part of the
 # trace2-format trace on stdin.
 #
 #	test_region [!] <category> <label> git <command> <args>...
@@ -1794,4 +1839,37 @@ test_region () {
 # the same as the readlink command, but it's not available everywhere.
 test_readlink () {
 	perl -le 'print readlink($_) for @ARGV' "$@"
+}
+
+# Set mtime to a fixed "magic" timestamp in mid February 2009, before we
+# run an operation that may or may not touch the file.  If the file was
+# touched, its timestamp will not accidentally have such an old timestamp,
+# as long as your filesystem clock is reasonably correct.  To verify the
+# timestamp, follow up with test_is_magic_mtime.
+#
+# An optional increment to the magic timestamp may be specified as second
+# argument.
+test_set_magic_mtime () {
+	local inc=${2:-0} &&
+	local mtime=$((1234567890 + $inc)) &&
+	test-tool chmtime =$mtime "$1" &&
+	test_is_magic_mtime "$1" $inc
+}
+
+# Test whether the given file has the "magic" mtime set.  This is meant to
+# be used in combination with test_set_magic_mtime.
+#
+# An optional increment to the magic timestamp may be specified as second
+# argument.  Usually, this should be the same increment which was used for
+# the associated test_set_magic_mtime.
+test_is_magic_mtime () {
+	local inc=${2:-0} &&
+	local mtime=$((1234567890 + $inc)) &&
+	echo $mtime >.git/test-mtime-expect &&
+	test-tool chmtime --get "$1" >.git/test-mtime-actual &&
+	test_cmp .git/test-mtime-expect .git/test-mtime-actual
+	local ret=$?
+	rm -f .git/test-mtime-expect
+	rm -f .git/test-mtime-actual
+	return $ret
 }

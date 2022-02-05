@@ -4,6 +4,98 @@ test_description='git cat-file'
 
 . ./test-lib.sh
 
+test_cmdmode_usage () {
+	test_expect_code 129 "$@" 2>err &&
+	grep "^error:.*is incompatible with" err
+}
+
+for switches in \
+	'-e -p' \
+	'-p -t' \
+	'-t -s' \
+	'-s --textconv' \
+	'--textconv --filters' \
+	'--batch-all-objects -e'
+do
+	test_expect_success "usage: cmdmode $switches" '
+		test_cmdmode_usage git cat-file $switches
+	'
+done
+
+test_incompatible_usage () {
+	test_expect_code 129 "$@" 2>err &&
+	grep -E "^(fatal|error):.*(requires|incompatible with|needs)" err
+}
+
+for opt in --batch --batch-check
+do
+	test_expect_success "usage: incompatible options: --path with $opt" '
+		test_incompatible_usage git cat-file --path=foo $opt
+	'
+done
+
+test_missing_usage () {
+	test_expect_code 129 "$@" 2>err &&
+	grep -E "^fatal:.*required" err
+}
+
+short_modes="-e -p -t -s"
+cw_modes="--textconv --filters"
+
+for opt in $cw_modes
+do
+	test_expect_success "usage: $opt requires another option" '
+		test_missing_usage git cat-file $opt
+	'
+done
+
+for opt in $short_modes
+do
+	test_expect_success "usage: $opt requires another option" '
+		test_missing_usage git cat-file $opt
+	'
+
+	for opt2 in --batch \
+		--batch-check \
+		--follow-symlinks \
+		"--path=foo HEAD:some-path.txt"
+	do
+		test_expect_success "usage: incompatible options: $opt and $opt2" '
+			test_incompatible_usage git cat-file $opt $opt2
+		'
+	done
+done
+
+test_too_many_arguments () {
+	test_expect_code 129 "$@" 2>err &&
+	grep -E "^fatal: too many arguments$" err
+}
+
+for opt in $short_modes $cw_modes
+do
+	args="one two three"
+	test_expect_success "usage: too many arguments: $opt $args" '
+		test_too_many_arguments git cat-file $opt $args
+	'
+
+	for opt2 in --buffer --follow-symlinks
+	do
+		test_expect_success "usage: incompatible arguments: $opt with batch option $opt2" '
+			test_incompatible_usage git cat-file $opt $opt2
+		'
+	done
+done
+
+for opt in --buffer \
+	--follow-symlinks \
+	--batch-all-objects
+do
+	test_expect_success "usage: bad option combination: $opt without batch mode" '
+		test_incompatible_usage git cat-file $opt &&
+		test_incompatible_usage git cat-file $opt commit HEAD
+	'
+done
+
 echo_without_newline () {
     printf '%s' "$*"
 }
@@ -211,14 +303,14 @@ done
 test_expect_success "--batch-check for a non-existent named object" '
     test "foobar42 missing
 foobar84 missing" = \
-    "$( ( echo foobar42; echo_without_newline foobar84; ) | git cat-file --batch-check)"
+    "$( ( echo foobar42 && echo_without_newline foobar84 ) | git cat-file --batch-check)"
 '
 
 test_expect_success "--batch-check for a non-existent hash" '
     test "0000000000000000000000000000000000000042 missing
 0000000000000000000000000000000000000084 missing" = \
-    "$( ( echo 0000000000000000000000000000000000000042;
-	 echo_without_newline 0000000000000000000000000000000000000084; ) |
+    "$( ( echo 0000000000000000000000000000000000000042 &&
+	 echo_without_newline 0000000000000000000000000000000000000084 ) |
        git cat-file --batch-check)"
 '
 
@@ -226,8 +318,8 @@ test_expect_success "--batch for an existent and a non-existent hash" '
     test "$tag_sha1 tag $tag_size
 $tag_content
 0000000000000000000000000000000000000000 missing" = \
-    "$( ( echo $tag_sha1;
-	 echo_without_newline 0000000000000000000000000000000000000000; ) |
+    "$( ( echo $tag_sha1 &&
+	 echo_without_newline 0000000000000000000000000000000000000000 ) |
        git cat-file --batch)"
 '
 
@@ -283,7 +375,7 @@ test_expect_success "--batch-check with multiple sha1s gives correct format" '
 
 test_expect_success 'setup blobs which are likely to delta' '
 	test-tool genrandom foo 10240 >foo &&
-	{ cat foo; echo plus; } >foo-plus &&
+	{ cat foo && echo plus; } >foo-plus &&
 	git add foo foo-plus &&
 	git commit -m foo &&
 	cat >blobs <<-\EOF
@@ -452,9 +544,8 @@ test_expect_success 'the --allow-unknown-type option does not consider replaceme
 	# Create it manually, as "git replace" will die on bogus
 	# types.
 	head=$(git rev-parse --verify HEAD) &&
-	test_when_finished "rm -rf .git/refs/replace" &&
-	mkdir -p .git/refs/replace &&
-	echo $head >.git/refs/replace/$bogus_short_sha1 &&
+	test_when_finished "test-tool ref-store main delete-refs 0 msg refs/replace/$bogus_short_sha1" &&
+	test-tool ref-store main update-ref msg "refs/replace/$bogus_short_sha1" $head $ZERO_OID REF_SKIP_OID_VERIFICATION &&
 
 	cat >expect <<-EOF &&
 	commit

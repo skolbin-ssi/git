@@ -404,8 +404,9 @@ is_abbreviated:
 	return PARSE_OPT_UNKNOWN;
 }
 
-static int parse_nodash_opt(struct parse_opt_ctx_t *p, const char *arg,
-			    const struct option *options)
+static enum parse_opt_result parse_nodash_opt(struct parse_opt_ctx_t *p,
+					      const char *arg,
+					      const struct option *options)
 {
 	const struct option *all_opts = options;
 
@@ -415,7 +416,7 @@ static int parse_nodash_opt(struct parse_opt_ctx_t *p, const char *arg,
 		if (options->short_name == arg[0] && arg[1] == '\0')
 			return get_value(p, options, all_opts, OPT_SHORT);
 	}
-	return -2;
+	return PARSE_OPT_ERROR;
 }
 
 static void check_typos(const char *arg, const struct option *options)
@@ -860,11 +861,11 @@ int parse_options_end(struct parse_opt_ctx_t *ctx)
 	return ctx->cpidx + ctx->argc;
 }
 
-enum parse_opt_result parse_options(int argc, const char **argv,
-				    const char *prefix,
-				    const struct option *options,
-				    const char * const usagestr[],
-				    enum parse_opt_flags flags)
+int parse_options(int argc, const char **argv,
+		  const char *prefix,
+		  const struct option *options,
+		  const char * const usagestr[],
+		  enum parse_opt_flags flags)
 {
 	struct parse_opt_ctx_t ctx;
 	struct option *real_options;
@@ -1075,6 +1076,19 @@ void NORETURN usage_msg_opt(const char *msg,
 		   const char * const *usagestr,
 		   const struct option *options)
 {
-	fprintf(stderr, "fatal: %s\n\n", msg);
+	die_message("%s\n", msg); /* The extra \n is intentional */
 	usage_with_options(usagestr, options);
+}
+
+void NORETURN usage_msg_optf(const char * const fmt,
+			     const char * const *usagestr,
+			     const struct option *options, ...)
+{
+	struct strbuf msg = STRBUF_INIT;
+	va_list ap;
+	va_start(ap, options);
+	strbuf_vaddf(&msg, fmt, ap);
+	va_end(ap);
+
+	usage_msg_opt(msg.buf, usagestr, options);
 }
