@@ -262,6 +262,7 @@ struct commit_list *get_shallow_commits_by_rev_list(int ac, const char **av,
 		if ((o->flags & both_flags) == both_flags)
 			o->flags &= ~not_shallow_flag;
 	}
+	release_revisions(&revs);
 	return result;
 }
 
@@ -560,7 +561,7 @@ static void paint_down(struct paint_info *info, const struct object_id *oid,
 		else
 			c->object.flags |= SEEN;
 
-		if (*refs == NULL)
+		if (!*refs)
 			*refs = bitmap;
 		else {
 			memcpy(tmp, *refs, bitmap_size);

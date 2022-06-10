@@ -88,7 +88,7 @@ static int match_ref_pattern(const char *refname,
 			     const struct string_list_item *item)
 {
 	int matched = 0;
-	if (item->util == NULL) {
+	if (!item->util) {
 		if (!wildmatch(item->string, refname, 0))
 			matched = 1;
 	} else {
@@ -1098,6 +1098,7 @@ int log_tree_commit(struct rev_info *opt, struct commit *commit)
 	opt->loginfo = &log;
 	opt->diffopt.no_free = 1;
 
+	/* NEEDSWORK: no restoring of no_free?  Why? */
 	if (opt->line_level_traverse)
 		return line_log_print(opt, commit);
 
