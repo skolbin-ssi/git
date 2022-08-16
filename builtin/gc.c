@@ -168,9 +168,15 @@ struct maintenance_run_opts;
 static int maintenance_task_pack_refs(MAYBE_UNUSED struct maintenance_run_opts *opts)
 {
 	struct strvec pack_refs_cmd = STRVEC_INIT;
+	int ret;
+
 	strvec_pushl(&pack_refs_cmd, "pack-refs", "--all", "--prune", NULL);
 
-	return run_command_v_opt(pack_refs_cmd.v, RUN_GIT_CMD);
+	ret = run_command_v_opt(pack_refs_cmd.v, RUN_GIT_CMD);
+
+	strvec_clear(&pack_refs_cmd);
+
+	return ret;
 }
 
 static int too_many_loose_objects(void)
@@ -581,7 +587,7 @@ int cmd_gc(int argc, const char **argv, const char *prefix)
 	/* default expiry time, overwritten in gc_config */
 	gc_config();
 	if (parse_expiry_date(gc_log_expire, &gc_log_expire_time))
-		die(_("failed to parse gc.logexpiry value %s"), gc_log_expire);
+		die(_("failed to parse gc.logExpiry value %s"), gc_log_expire);
 
 	if (pack_refs < 0)
 		pack_refs = !is_bare_repository();

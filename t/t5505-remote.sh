@@ -302,6 +302,52 @@ test_expect_success 'show' '
 	)
 '
 
+cat >expect <<EOF
+* remote origin
+  Fetch URL: $(pwd)/one
+  Push  URL: $(pwd)/one
+  HEAD branch: main
+  Remote branches:
+    main skipped
+    side tracked
+  Local branches configured for 'git pull':
+    ahead merges with remote main
+    main  merges with remote main
+  Local refs configured for 'git push':
+    main pushes to main     (local out of date)
+    main pushes to upstream (create)
+EOF
+
+test_expect_success 'show with negative refspecs' '
+	test_when_finished "git -C test config --unset-all --fixed-value remote.origin.fetch ^refs/heads/main" &&
+	git -C test config --add remote.origin.fetch ^refs/heads/main &&
+	git -C test remote show origin >output &&
+	test_cmp expect output
+'
+
+cat >expect <<EOF
+* remote origin
+  Fetch URL: $(pwd)/one
+  Push  URL: $(pwd)/one
+  HEAD branch: main
+  Remote branches:
+    main new (next fetch will store in remotes/origin)
+    side stale (use 'git remote prune' to remove)
+  Local branches configured for 'git pull':
+    ahead merges with remote main
+    main  merges with remote main
+  Local refs configured for 'git push':
+    main pushes to main     (local out of date)
+    main pushes to upstream (create)
+EOF
+
+test_expect_failure 'show stale with negative refspecs' '
+	test_when_finished "git -C test config --unset-all --fixed-value remote.origin.fetch ^refs/heads/side" &&
+	git -C test config --add remote.origin.fetch ^refs/heads/side &&
+	git -C test remote show origin >output &&
+	test_cmp expect output
+'
+
 cat >test/expect <<EOF
 * remote origin
   Fetch URL: $(pwd)/one
@@ -957,11 +1003,12 @@ test_expect_success 'migrate a remote from named file in $GIT_DIR/remotes' '
 '
 
 test_expect_success 'migrate a remote from named file in $GIT_DIR/branches' '
-	git clone one six &&
+	git clone --template= one six &&
 	origin_url=$(pwd)/one &&
 	(
 		cd six &&
 		git remote rm origin &&
+		mkdir .git/branches &&
 		echo "$origin_url#main" >.git/branches/origin &&
 		git remote rename origin origin &&
 		test_path_is_missing .git/branches/origin &&
@@ -972,10 +1019,11 @@ test_expect_success 'migrate a remote from named file in $GIT_DIR/branches' '
 '
 
 test_expect_success 'migrate a remote from named file in $GIT_DIR/branches (2)' '
-	git clone one seven &&
+	git clone --template= one seven &&
 	(
 		cd seven &&
 		git remote rm origin &&
+		mkdir .git/branches &&
 		echo "quux#foom" > .git/branches/origin &&
 		git remote rename origin origin &&
 		test_path_is_missing .git/branches/origin &&

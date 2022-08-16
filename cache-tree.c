@@ -101,33 +101,6 @@ struct cache_tree_sub *cache_tree_sub(struct cache_tree *it, const char *path)
 	return find_subtree(it, path, pathlen, 1);
 }
 
-struct cache_tree *cache_tree_find_path(struct cache_tree *it, const char *path)
-{
-	const char *slash;
-	int namelen;
-	struct cache_tree_sub it_sub = {
-		.cache_tree = it,
-	};
-	struct cache_tree_sub *down = &it_sub;
-
-	while (down) {
-		slash = strchrnul(path, '/');
-		namelen = slash - path;
-		down->cache_tree->entry_count = -1;
-		if (!*slash) {
-			int pos;
-			pos = cache_tree_subtree_pos(down->cache_tree, path, namelen);
-			if (0 <= pos)
-				return down->cache_tree->down[pos]->cache_tree;
-			return NULL;
-		}
-		down = find_subtree(it, path, namelen, 0);
-		path = slash + 1;
-	}
-
-	return NULL;
-}
-
 static int do_invalidate_path(struct cache_tree *it, const char *path)
 {
 	/* a/b/c
@@ -722,14 +695,14 @@ struct tree* write_in_core_index_as_tree(struct repository *repo) {
 	ret = write_index_as_tree_internal(&o, index_state, was_valid, 0, NULL);
 	if (ret == WRITE_TREE_UNMERGED_INDEX) {
 		int i;
-		fprintf(stderr, "BUG: There are unmerged index entries:\n");
+		bug("there are unmerged index entries:");
 		for (i = 0; i < index_state->cache_nr; i++) {
 			const struct cache_entry *ce = index_state->cache[i];
 			if (ce_stage(ce))
-				fprintf(stderr, "BUG: %d %.*s\n", ce_stage(ce),
-					(int)ce_namelen(ce), ce->name);
+				bug("%d %.*s", ce_stage(ce),
+				    (int)ce_namelen(ce), ce->name);
 		}
-		BUG("unmerged index entries when writing inmemory index");
+		BUG("unmerged index entries when writing in-core index");
 	}
 
 	return lookup_tree(repo, &index_state->cache_tree->oid);

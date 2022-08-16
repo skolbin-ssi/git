@@ -1944,8 +1944,6 @@ static struct cache_entry *create_from_disk(struct mem_pool *ce_mem_pool,
 	ce->ce_namelen = len;
 	ce->index = 0;
 	oidread(&ce->oid, ondisk->data);
-	memcpy(ce->name, name, len);
-	ce->name[len] = '\0';
 
 	if (expand_name_field) {
 		if (copy_len)
@@ -2296,6 +2294,8 @@ int do_read_index(struct index_state *istate, const char *path, int must_exist)
 	fd = open(path, O_RDONLY);
 	if (fd < 0) {
 		if (!must_exist && errno == ENOENT) {
+			if (!istate->repo)
+				istate->repo = the_repository;
 			set_new_index_sparsity(istate);
 			return 0;
 		}
@@ -2475,15 +2475,15 @@ int read_index_from(struct index_state *istate, const char *path,
 				   the_repository, "%s", base_path);
 	if (!ret) {
 		char *path_copy = xstrdup(path);
-		const char *base_path2 = xstrfmt("%s/sharedindex.%s",
-						 dirname(path_copy),
-						 base_oid_hex);
+		char *base_path2 = xstrfmt("%s/sharedindex.%s",
+					   dirname(path_copy), base_oid_hex);
 		free(path_copy);
 		trace2_region_enter_printf("index", "shared/do_read_index",
 					   the_repository, "%s", base_path2);
 		ret = do_read_index(split_index->base, base_path2, 1);
 		trace2_region_leave_printf("index", "shared/do_read_index",
 					   the_repository, "%s", base_path2);
+		free(base_path2);
 	}
 	if (!oideq(&split_index->base_oid, &split_index->base->oid))
 		die(_("broken index, expect %s in %s, got %s"),
