@@ -977,9 +977,13 @@ static int sign_buffer_gpg(struct strbuf *buffer, struct strbuf *signature,
 			break; /* found */
 	}
 	ret |= !cp;
+	if (ret) {
+		error(_("gpg failed to sign the data:\n%s"),
+		      gpg_status.len ? gpg_status.buf : "(no gpg output)");
+		strbuf_release(&gpg_status);
+		return -1;
+	}
 	strbuf_release(&gpg_status);
-	if (ret)
-		return error(_("gpg failed to sign the data"));
 
 	/* Strip CR from the line endings, in case we are on Windows. */
 	remove_cr_after(signature, bottom);
@@ -998,6 +1002,7 @@ static int sign_buffer_ssh(struct strbuf *buffer, struct strbuf *signature,
 	char *ssh_signing_key_file = NULL;
 	struct strbuf ssh_signature_filename = STRBUF_INIT;
 	const char *literal_key = NULL;
+	int literal_ssh_key = 0;
 
 	if (!signing_key || signing_key[0] == '\0')
 		return error(
@@ -1005,6 +1010,7 @@ static int sign_buffer_ssh(struct strbuf *buffer, struct strbuf *signature,
 
 	if (is_literal_ssh_key(signing_key, &literal_key)) {
 		/* A literal ssh key */
+		literal_ssh_key = 1;
 		key_file = mks_tempfile_t(".git_signing_key_tmpXXXXXX");
 		if (!key_file)
 			return error_errno(
@@ -1039,8 +1045,10 @@ static int sign_buffer_ssh(struct strbuf *buffer, struct strbuf *signature,
 		     "-Y", "sign",
 		     "-n", "git",
 		     "-f", ssh_signing_key_file,
-		     buffer_file->filename.buf,
 		     NULL);
+	if (literal_ssh_key)
+		strvec_push(&signer.args, "-U");
+	strvec_push(&signer.args, buffer_file->filename.buf);
 
 	sigchain_push(SIGPIPE, SIG_IGN);
 	ret = pipe_command(&signer, NULL, 0, NULL, 0, &signer_stderr, 0);
@@ -1059,12 +1067,11 @@ static int sign_buffer_ssh(struct strbuf *buffer, struct strbuf *signature,
 	strbuf_addbuf(&ssh_signature_filename, &buffer_file->filename);
 	strbuf_addstr(&ssh_signature_filename, ".sig");
 	if (strbuf_read_file(signature, ssh_signature_filename.buf, 0) < 0) {
-		error_errno(
+		ret = error_errno(
 			_("failed reading ssh signing data buffer from '%s'"),
 			ssh_signature_filename.buf);
+		goto out;
 	}
-	unlink_or_warn(ssh_signature_filename.buf);
-
 	/* Strip CR from the line endings, in case we are on Windows. */
 	remove_cr_after(signature, bottom);
 
@@ -1073,6 +1080,8 @@ out:
 		delete_tempfile(&key_file);
 	if (buffer_file)
 		delete_tempfile(&buffer_file);
+	if (ssh_signature_filename.len)
+		unlink_or_warn(ssh_signature_filename.buf);
 	strbuf_release(&signer_stderr);
 	strbuf_release(&ssh_signature_filename);
 	FREE_AND_NULL(ssh_signing_key_file);

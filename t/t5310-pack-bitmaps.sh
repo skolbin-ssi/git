@@ -428,8 +428,9 @@ test_bitmap_cases () {
 			test_line_count = 2 packs &&
 			test_line_count = 2 bitmaps &&
 
-			git rev-list --use-bitmap-index HEAD 2>err &&
-			grep "ignoring extra bitmap file" err
+			GIT_TRACE2_EVENT=$(pwd)/trace2.txt git rev-list --use-bitmap-index HEAD &&
+			grep "opened bitmap" trace2.txt &&
+			grep "ignoring extra bitmap" trace2.txt
 		)
 	'
 }
@@ -453,13 +454,6 @@ test_expect_success 'verify writing bitmap lookup table when enabled' '
 	GIT_TRACE2_EVENT="$(pwd)/trace2" \
 		git repack -ad &&
 	grep "\"label\":\"writing_lookup_table\"" trace2
-'
-
-test_expect_success 'lookup table is actually used to traverse objects' '
-	git repack -adb &&
-	GIT_TRACE2_EVENT="$(pwd)/trace3" \
-		git rev-list --use-bitmap-index --count --all &&
-	grep "\"label\":\"reading_lookup_table\"" trace3
 '
 
 test_expect_success 'truncated bitmap fails gracefully (lookup table)' '

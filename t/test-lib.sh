@@ -47,6 +47,16 @@ then
 	echo "PANIC: Running in a $TEST_DIRECTORY that doesn't end in '/t'?" >&2
 	exit 1
 fi
+if test -f "$GIT_BUILD_DIR/GIT-BUILD-DIR"
+then
+	GIT_BUILD_DIR="$(cat "$GIT_BUILD_DIR/GIT-BUILD-DIR")" || exit 1
+	# On Windows, we must convert Windows paths lest they contain a colon
+	case "$(uname -s)" in
+	*MINGW*)
+		GIT_BUILD_DIR="$(cygpath -au "$GIT_BUILD_DIR")"
+		;;
+	esac
+fi
 
 # Prepend a string to a VAR using an arbitrary ":" delimiter, not
 # adding the delimiter if VAR or VALUE is empty. I.e. a generalized:
@@ -563,9 +573,11 @@ case $GIT_TEST_FSYNC in
 esac
 
 # Add libc MALLOC and MALLOC_PERTURB test only if we are not executing
-# the test with valgrind and have not compiled with SANITIZE=address.
+# the test with valgrind and have not compiled with conflict SANITIZE
+# options.
 if test -n "$valgrind" ||
    test -n "$SANITIZE_ADDRESS" ||
+   test -n "$SANITIZE_LEAK" ||
    test -n "$TEST_NO_MALLOC_CHECK"
 then
 	setup_malloc_check () {
@@ -1091,11 +1103,7 @@ test_run_ () {
 		trace=
 		# 117 is magic because it is unlikely to match the exit
 		# code of other programs
-		if test "OK-117" != "$(test_eval_ "(exit 117) && $1${LF}${LF}echo OK-\$?" 3>&1)" ||
-		   {
-			test "${GIT_TEST_CHAIN_LINT_HARDER:-${GIT_TEST_CHAIN_LINT_HARDER_DEFAULT:-1}}" != 0 &&
-			$(printf '%s\n' "$1" | sed -f "$GIT_BUILD_DIR/t/chainlint.sed" | grep -q '?![A-Z][A-Z]*?!')
-		   }
+		if test "OK-117" != "$(test_eval_ "(exit 117) && $1${LF}${LF}echo OK-\$?" 3>&1)"
 		then
 			BUG "broken &&-chain or run-away HERE-DOC: $1"
 		fi
@@ -1534,8 +1542,8 @@ then
 	# Normalize with test_bool_env
 	passes_sanitize_leak=
 
-	# We need to see TEST_PASSES_SANITIZE_LEAK in "git
-	# env--helper" (via test_bool_env)
+	# We need to see TEST_PASSES_SANITIZE_LEAK in "test-tool
+	# env-helper" (via test_bool_env)
 	export TEST_PASSES_SANITIZE_LEAK
 	if test_bool_env TEST_PASSES_SANITIZE_LEAK false
 	then
@@ -1589,6 +1597,12 @@ then
 elif test_bool_env GIT_TEST_SANITIZE_LEAK_LOG false
 then
 	BAIL_OUT_ENV_NEEDS_SANITIZE_LEAK "GIT_TEST_SANITIZE_LEAK_LOG=true"
+fi
+
+if test "${GIT_TEST_CHAIN_LINT:-1}" != 0
+then
+	"$PERL_PATH" "$TEST_DIRECTORY/chainlint.pl" "$0" ||
+		BUG "lint error (see '?!...!? annotations above)"
 fi
 
 # Last-minute variable setup
@@ -1668,7 +1682,7 @@ yes () {
 # The GIT_TEST_FAIL_PREREQS code hooks into test_set_prereq(), and
 # thus needs to be set up really early, and set an internal variable
 # for convenience so the hot test_set_prereq() codepath doesn't need
-# to call "git env--helper" (via test_bool_env). Only do that work
+# to call "test-tool env-helper" (via test_bool_env). Only do that work
 # if needed by seeing if GIT_TEST_FAIL_PREREQS is set at all.
 GIT_TEST_FAIL_PREREQS_INTERNAL=
 if test -n "$GIT_TEST_FAIL_PREREQS"
@@ -1707,7 +1721,7 @@ case $uname_s in
 	test_set_prereq SED_STRIPS_CR
 	test_set_prereq GREP_STRIPS_CR
 	test_set_prereq WINDOWS
-	GIT_TEST_CMP=mingw_test_cmp
+	GIT_TEST_CMP="GIT_DIR=/dev/null git diff --no-index --ignore-cr-at-eol --"
 	;;
 *CYGWIN*)
 	test_set_prereq POSIXPERM
@@ -1921,10 +1935,6 @@ test_lazy_prereq SHA1 '
 	"") test $(git hash-object /dev/null) = e69de29bb2d1d6434b8b29ae775ad8c2e48c5391 ;;
 	*) false ;;
 	esac
-'
-
-test_lazy_prereq ADD_I_USE_BUILTIN '
-	test_bool_env GIT_TEST_ADD_I_USE_BUILTIN true
 '
 
 # Ensure that no test accidentally triggers a Git command

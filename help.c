@@ -39,7 +39,7 @@ static struct category_description main_categories[] = {
 	{ CAT_synchingrepositories, N_("Low-level Commands / Syncing Repositories") },
 	{ CAT_purehelpers, N_("Low-level Commands / Internal Helpers") },
 	{ CAT_userinterfaces, N_("User-facing repository, command and file interfaces") },
-	{ CAT_developerinterfaces, N_("Developer-facing file file formats, protocols and interfaces") },
+	{ CAT_developerinterfaces, N_("Developer-facing file formats, protocols and other interfaces") },
 	{ 0, NULL }
 };
 
@@ -563,7 +563,7 @@ static int git_unknown_cmd_config(const char *var, const char *value, void *cb)
 	if (skip_prefix(var, "alias.", &p))
 		add_cmdname(&aliases, p, strlen(p));
 
-	return git_default_config(var, value, cb);
+	return 0;
 }
 
 static int levenshtein_compare(const void *p1, const void *p2)
@@ -757,7 +757,7 @@ int cmd_version(int argc, const char **argv, const char *prefix)
 	struct strbuf buf = STRBUF_INIT;
 	int build_options = 0;
 	const char * const usage[] = {
-		N_("git version [<options>]"),
+		N_("git version [--build-options]"),
 		NULL
 	};
 	struct option options[] = {

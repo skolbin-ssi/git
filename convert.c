@@ -1308,7 +1308,7 @@ void convert_attrs(struct index_state *istate,
 		git_config(read_convert_config, NULL);
 	}
 
-	git_check_attr(istate, path, check);
+	git_check_attr(istate, NULL, path, check);
 	ccheck = check->items;
 	ca->crlf_action = git_path_check_crlf(ccheck + 4);
 	if (ca->crlf_action == CRLF_UNDEFINED)
@@ -1549,7 +1549,7 @@ struct stream_filter {
 	struct stream_filter_vtbl *vtbl;
 };
 
-static int null_filter_fn(struct stream_filter *filter,
+static int null_filter_fn(struct stream_filter *filter UNUSED,
 			  const char *input, size_t *isize_p,
 			  char *output, size_t *osize_p)
 {
@@ -1568,7 +1568,7 @@ static int null_filter_fn(struct stream_filter *filter,
 	return 0;
 }
 
-static void null_free_fn(struct stream_filter *filter)
+static void null_free_fn(struct stream_filter *filter UNUSED)
 {
 	; /* nothing -- null instances are shared */
 }

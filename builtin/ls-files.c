@@ -257,7 +257,7 @@ static size_t expand_show_index(struct strbuf *sb, const char *start,
 
 	end = strchr(start + 1, ')');
 	if (!end)
-		die(_("bad ls-files format: element '%s'"
+		die(_("bad ls-files format: element '%s' "
 		      "does not end in ')'"), start);
 
 	len = end - start + 1;
@@ -613,6 +613,7 @@ void overlay_tree_on_index(struct index_state *istate,
 	if (!fn)
 		fn = read_one_entry_quick;
 	err = read_tree(the_repository, tree, &pathspec, fn, istate);
+	clear_pathspec(&pathspec);
 	if (err)
 		die("unable to read tree entries %s", tree_name);
 

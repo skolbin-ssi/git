@@ -14,6 +14,10 @@ export GIT_TEST_DEFAULT_INITIAL_BRANCH_NAME
 
 . ./test-lib.sh
 
+test_expect_success 'setup - enable local submodules' '
+	git config --global protocol.file.allow always
+'
+
 test_expect_success 'submodule usage: -h' '
 	git submodule -h >out 2>err &&
 	grep "^usage: git submodule" out &&
@@ -573,6 +577,16 @@ test_expect_success 'status should be "modified" after submodule commit' '
 	git submodule status >list &&
 
 	grep "^+$rev2" list
+'
+
+test_expect_success '"submodule --cached" command forms should be identical' '
+	git submodule status --cached >expect &&
+
+	git submodule --cached >actual &&
+	test_cmp expect actual &&
+
+	git submodule --cached status >actual &&
+	test_cmp expect actual
 '
 
 test_expect_success 'the --cached sha1 should be rev1' '

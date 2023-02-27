@@ -1001,7 +1001,7 @@ test_expect_success 'part of packfile response provided as URI' '
 	do
 		git verify-pack --object-format=$(test_oid algo) --verbose $idx >out &&
 		{
-			grep "^[0-9a-f]\{16,\} " out || :
+			grep -E "^[0-9a-f]{16,} " out || :
 		} >out.objectlist &&
 		if test_line_count = 1 out.objectlist
 		then
@@ -1114,7 +1114,7 @@ test_expect_success 'packfile-uri with transfer.fsckobjects fails on bad object'
 
 	This commit object intentionally broken
 	EOF
-	BOGUS=$(git -C "$P" hash-object -t commit -w --stdin <bogus-commit) &&
+	BOGUS=$(git -C "$P" hash-object -t commit -w --stdin --literally <bogus-commit) &&
 	git -C "$P" branch bogus-branch "$BOGUS" &&
 
 	echo my-blob >"$P/my-blob" &&

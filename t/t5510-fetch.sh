@@ -790,6 +790,7 @@ test_expect_success 'fetch.writeCommitGraph' '
 '
 
 test_expect_success 'fetch.writeCommitGraph with submodules' '
+	test_config_global protocol.file.allow always &&
 	git clone dups super &&
 	(
 		cd super &&
@@ -803,6 +804,14 @@ test_expect_success 'fetch.writeCommitGraph with submodules' '
 		git -c fetch.writeCommitGraph=true fetch origin &&
 		test_path_is_file .git/objects/info/commit-graphs/commit-graph-chain
 	)
+'
+
+# fetches from first configured url
+test_expect_success 'fetch from multiple configured URLs in single remote' '
+	git init url1 &&
+	git remote add multipleurls url1 &&
+	git remote set-url --add multipleurls url2 &&
+	git fetch multipleurls
 '
 
 # configured prune tests

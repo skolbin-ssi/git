@@ -862,7 +862,7 @@ static int packed_ref_iterator_advance(struct ref_iterator *ref_iterator)
 
 	while ((ok = next_record(iter)) == ITER_OK) {
 		if (iter->flags & DO_FOR_EACH_PER_WORKTREE_ONLY &&
-		    ref_type(iter->base.refname) != REF_TYPE_PER_WORKTREE)
+		    !is_per_worktree_ref(iter->base.refname))
 			continue;
 
 		if (!(iter->flags & DO_FOR_EACH_INCLUDE_BROKEN) &&
@@ -1263,7 +1263,8 @@ static int write_with_updates(struct packed_ref_store *refs,
 		goto error;
 	}
 
-	if (fsync_component(FSYNC_COMPONENT_REFERENCE, get_tempfile_fd(refs->tempfile)) ||
+	if (fflush(out) ||
+	    fsync_component(FSYNC_COMPONENT_REFERENCE, get_tempfile_fd(refs->tempfile)) ||
 	    close_tempfile_gently(refs->tempfile)) {
 		strbuf_addf(err, "error closing file %s: %s",
 			    get_tempfile_path(refs->tempfile),

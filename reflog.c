@@ -193,7 +193,6 @@ static void mark_reachable(struct expire_reflog_policy_cb *cb)
 			commit_list_insert(commit, &leftover);
 			continue;
 		}
-		commit->object.flags |= REACHABLE;
 		parent = commit->parents;
 		while (parent) {
 			commit = parent->item;
@@ -312,16 +311,9 @@ static int push_tip_to_list(const char *refname UNUSED,
 
 static int is_head(const char *refname)
 {
-	switch (ref_type(refname)) {
-	case REF_TYPE_OTHER_PSEUDOREF:
-	case REF_TYPE_MAIN_PSEUDOREF:
-		if (parse_worktree_ref(refname, NULL, NULL, &refname))
-			BUG("not a worktree ref: %s", refname);
-		break;
-	default:
-		break;
-	}
-	return !strcmp(refname, "HEAD");
+	const char *stripped_refname;
+	parse_worktree_ref(refname, NULL, NULL, &stripped_refname);
+	return !strcmp(stripped_refname, "HEAD");
 }
 
 void reflog_expiry_prepare(const char *refname,
@@ -378,6 +370,9 @@ void reflog_expiry_cleanup(void *cb_data)
 		clear_commit_marks(cb->tip_commit, REACHABLE);
 		break;
 	}
+	for (elem = cb->mark_list; elem; elem = elem->next)
+		clear_commit_marks(elem->item, REACHABLE);
+	free_commit_list(cb->mark_list);
 }
 
 int count_reflog_ent(struct object_id *ooid UNUSED,

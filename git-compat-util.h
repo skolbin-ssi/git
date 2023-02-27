@@ -97,8 +97,14 @@ struct strbuf;
 # define BARF_UNLESS_AN_ARRAY(arr)						\
 	BUILD_ASSERT_OR_ZERO(!__builtin_types_compatible_p(__typeof__(arr), \
 							   __typeof__(&(arr)[0])))
+# define BARF_UNLESS_COPYABLE(dst, src) \
+	BUILD_ASSERT_OR_ZERO(__builtin_types_compatible_p(__typeof__(*(dst)), \
+							  __typeof__(*(src))))
 #else
 # define BARF_UNLESS_AN_ARRAY(arr) 0
+# define BARF_UNLESS_COPYABLE(dst, src) \
+	BUILD_ASSERT_OR_ZERO(0 ? ((*(dst) = *(src)), 0) : \
+				 sizeof(*(dst)) == sizeof(*(src)))
 #endif
 /*
  * ARRAY_SIZE - get the number of elements in a visible array
@@ -189,9 +195,12 @@ struct strbuf;
 #define _NETBSD_SOURCE 1
 #define _SGI_SOURCE 1
 
-#if defined(__GNUC__)
+#if GIT_GNUC_PREREQ(4, 5)
 #define UNUSED __attribute__((unused)) \
 	__attribute__((deprecated ("parameter declared as UNUSED")))
+#elif defined(__GNUC__)
+#define UNUSED __attribute__((unused)) \
+	__attribute__((deprecated))
 #else
 #define UNUSED
 #endif
@@ -222,6 +231,7 @@ struct strbuf;
 #endif
 #include <errno.h>
 #include <limits.h>
+#include <locale.h>
 #ifdef NEEDS_SYS_PARAM_H
 #include <sys/param.h>
 #endif
@@ -310,7 +320,9 @@ typedef unsigned long uintptr_t;
 #ifdef PRECOMPOSE_UNICODE
 #include "compat/precompose_utf8.h"
 #else
-static inline const char *precompose_argv_prefix(int argc, const char **argv, const char *prefix)
+static inline const char *precompose_argv_prefix(int argc UNUSED,
+						 const char **argv UNUSED,
+						 const char *prefix)
 {
 	return prefix;
 }
@@ -335,9 +347,13 @@ struct itimerval {
 #endif
 
 #ifdef NO_SETITIMER
-static inline int setitimer(int which, const struct itimerval *value, struct itimerval *newvalue) {
+static inline int git_setitimer(int which UNUSED,
+				const struct itimerval *value UNUSED,
+				struct itimerval *newvalue UNUSED) {
 	return 0; /* pretend success */
 }
+#undef setitimer
+#define setitimer(which,value,ovalue) git_setitimer(which,value,ovalue)
 #endif
 
 #ifndef NO_LIBGEN_H
@@ -420,7 +436,7 @@ int lstat_cache_aware_rmdir(const char *path);
 #endif
 
 #ifndef has_dos_drive_prefix
-static inline int git_has_dos_drive_prefix(const char *path)
+static inline int git_has_dos_drive_prefix(const char *path UNUSED)
 {
 	return 0;
 }
@@ -428,7 +444,7 @@ static inline int git_has_dos_drive_prefix(const char *path)
 #endif
 
 #ifndef skip_dos_drive_prefix
-static inline int git_skip_dos_drive_prefix(char **path)
+static inline int git_skip_dos_drive_prefix(char **path UNUSED)
 {
 	return 0;
 }
@@ -1012,6 +1028,14 @@ static inline unsigned long cast_size_t_to_ulong(size_t a)
 	return (unsigned long)a;
 }
 
+static inline int cast_size_t_to_int(size_t a)
+{
+	if (a > INT_MAX)
+		die("number too large to represent as int on this platform: %"PRIuMAX,
+		    (uintmax_t)a);
+	return (int)a;
+}
+
 /*
  * Limit size of IO chunks, because huge chunks only cause pain.  OS X
  * 64-bit is buggy, returning EINVAL if len >= INT_MAX; and even in
@@ -1084,7 +1108,7 @@ int xstrncmpz(const char *s, const char *t, size_t len);
 #define REALLOC_ARRAY(x, alloc) (x) = xrealloc((x), st_mult(sizeof(*(x)), (alloc)))
 
 #define COPY_ARRAY(dst, src, n) copy_array((dst), (src), (n), sizeof(*(dst)) + \
-	BUILD_ASSERT_OR_ZERO(sizeof(*(dst)) == sizeof(*(src))))
+	BARF_UNLESS_COPYABLE((dst), (src)))
 static inline void copy_array(void *dst, const void *src, size_t n, size_t size)
 {
 	if (n)
@@ -1092,12 +1116,17 @@ static inline void copy_array(void *dst, const void *src, size_t n, size_t size)
 }
 
 #define MOVE_ARRAY(dst, src, n) move_array((dst), (src), (n), sizeof(*(dst)) + \
-	BUILD_ASSERT_OR_ZERO(sizeof(*(dst)) == sizeof(*(src))))
+	BARF_UNLESS_COPYABLE((dst), (src)))
 static inline void move_array(void *dst, const void *src, size_t n, size_t size)
 {
 	if (n)
 		memmove(dst, src, st_mult(size, n));
 }
+
+#define DUP_ARRAY(dst, src, n) do { \
+	size_t dup_array_n_ = (n); \
+	COPY_ARRAY(ALLOC_ARRAY((dst), dup_array_n_), (src), dup_array_n_); \
+} while (0)
 
 /*
  * These functions help you allocate structs with flex arrays, and copy
@@ -1328,6 +1357,11 @@ static inline int regexec_buf(const regex_t *preg, const char *buf, size_t size,
 	return regexec(preg, buf, nmatch, pmatch, eflags | REG_STARTEND);
 }
 
+#ifdef USE_ENHANCED_BASIC_REGULAR_EXPRESSIONS
+int git_regcomp(regex_t *preg, const char *pattern, int cflags);
+#define regcomp git_regcomp
+#endif
+
 #ifndef DIR_HAS_BSD_GROUP_SEMANTICS
 # define FORCE_DIR_SET_GID S_ISGID
 #else
@@ -1463,14 +1497,19 @@ int open_nofollow(const char *path, int flags);
 #endif
 
 #ifndef _POSIX_THREAD_SAFE_FUNCTIONS
-static inline void flockfile(FILE *fh)
+static inline void git_flockfile(FILE *fh UNUSED)
 {
 	; /* nothing */
 }
-static inline void funlockfile(FILE *fh)
+static inline void git_funlockfile(FILE *fh UNUSED)
 {
 	; /* nothing */
 }
+#undef flockfile
+#undef funlockfile
+#undef getc_unlocked
+#define flockfile(fh) git_flockfile(fh)
+#define funlockfile(fh) git_funlockfile(fh)
 #define getc_unlocked(fh) getc(fh)
 #endif
 
