@@ -1,6 +1,8 @@
 #!/bin/sh
 
 test_description='log --grep/--author/--regexp-ignore-case/-S/-G'
+
+TEST_PASSES_SANITIZE_LEAK=true
 . ./test-lib.sh
 
 test_log () {
@@ -57,10 +59,10 @@ test_expect_success setup '
 
 test_expect_success 'usage' '
 	test_expect_code 129 git log -S 2>err &&
-	test_i18ngrep "switch.*requires a value" err &&
+	test_grep "switch.*requires a value" err &&
 
 	test_expect_code 129 git log -G 2>err &&
-	test_i18ngrep "switch.*requires a value" err &&
+	test_grep "switch.*requires a value" err &&
 
 	test_expect_code 128 git log -Gregex -Sstring 2>err &&
 	grep "cannot be used together" err &&

@@ -8,8 +8,10 @@ test_description='Test git-bundle'
 GIT_TEST_DEFAULT_INITIAL_BRANCH_NAME=main
 export GIT_TEST_DEFAULT_INITIAL_BRANCH_NAME
 
+TEST_PASSES_SANITIZE_LEAK=true
 . ./test-lib.sh
 . "$TEST_DIRECTORY"/lib-bundle.sh
+. "$TEST_DIRECTORY"/lib-terminal.sh
 
 for cmd in create verify list-heads unbundle
 do
@@ -605,5 +607,81 @@ test_expect_success 'verify catches unreachable, broken prerequisites' '
 		test_line_count = 1 err
 	)
 '
+
+test_expect_success 'bundle progress includes write phase' '
+	GIT_PROGRESS_DELAY=0 \
+		git bundle create --progress out.bundle --all 2>err &&
+	grep 'Writing' err
+'
+
+test_expect_success TTY 'create --quiet disables all bundle progress' '
+	test_terminal env GIT_PROGRESS_DELAY=0 \
+		git bundle create --quiet out.bundle --all 2>err &&
+	test_must_be_empty err
+'
+
+test_expect_success 'bundle progress with --no-quiet' '
+	GIT_PROGRESS_DELAY=0 \
+		git bundle create --no-quiet out.bundle --all 2>err &&
+	grep "%" err
+'
+
+test_expect_success 'read bundle over stdin' '
+	git bundle create some.bundle HEAD &&
+
+	git bundle verify - <some.bundle 2>err &&
+	grep "<stdin> is okay" err &&
+
+	git bundle list-heads some.bundle >expect &&
+	git bundle list-heads - <some.bundle >actual &&
+	test_cmp expect actual &&
+
+	git bundle unbundle some.bundle >expect &&
+	git bundle unbundle - <some.bundle >actual &&
+	test_cmp expect actual
+'
+
+test_expect_success 'send a bundle to standard output' '
+	git bundle create - --all HEAD >bundle-one &&
+	mkdir -p down &&
+	git -C down bundle create - --all HEAD >bundle-two &&
+	git bundle verify bundle-one &&
+	git bundle verify bundle-two &&
+	git ls-remote bundle-one >expect &&
+	git ls-remote bundle-two >actual &&
+	test_cmp expect actual
+'
+
+test_expect_success 'unbundle outside of a repository' '
+	git bundle create some.bundle HEAD &&
+	echo "fatal: Need a repository to unbundle." >expect &&
+	nongit test_must_fail git bundle unbundle "$(pwd)/some.bundle" 2>err &&
+	test_cmp expect err
+'
+
+test_expect_success 'list-heads outside of a repository' '
+	git bundle create some.bundle HEAD &&
+	cat >expect <<-EOF &&
+	$(git rev-parse HEAD) HEAD
+	EOF
+	nongit git bundle list-heads "$(pwd)/some.bundle" >actual &&
+	test_cmp expect actual
+'
+
+for hash in sha1 sha256
+do
+	test_expect_success "list-heads with bundle using $hash" '
+		test_when_finished "rm -rf hash" &&
+		git init --object-format=$hash hash &&
+		test_commit -C hash initial &&
+		git -C hash bundle create hash.bundle HEAD &&
+
+		cat >expect <<-EOF &&
+		$(git -C hash rev-parse HEAD) HEAD
+		EOF
+		git bundle list-heads hash/hash.bundle >actual &&
+		test_cmp expect actual
+	'
+done
 
 test_done

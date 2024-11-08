@@ -1,5 +1,9 @@
-#include "cache.h"
-#include "object-store.h"
+#define USE_THE_REPOSITORY_VARIABLE
+
+#include "git-compat-util.h"
+#include "gettext.h"
+#include "hex.h"
+#include "object-store-ll.h"
 #include "run-command.h"
 #include "sigchain.h"
 #include "connected.h"
@@ -54,7 +58,7 @@ int check_connected(oid_iterate_fn fn, void *cb_data,
 		strbuf_release(&idx_file);
 	}
 
-	if (has_promisor_remote()) {
+	if (repo_has_promisor_remote(the_repository)) {
 		/*
 		 * For partial clones, we don't want to have to do a regular
 		 * connectivity check because we have to enumerate and exclude
@@ -74,7 +78,7 @@ int check_connected(oid_iterate_fn fn, void *cb_data,
 			for (p = get_all_packs(the_repository); p; p = p->next) {
 				if (!p->pack_promisor)
 					continue;
-				if (find_pack_entry_one(oid->hash, p))
+				if (find_pack_entry_one(oid, p))
 					goto promisor_pack_found;
 			}
 			/*
@@ -97,7 +101,7 @@ no_promisor_pack_found:
 	strvec_push(&rev_list.args,"rev-list");
 	strvec_push(&rev_list.args, "--objects");
 	strvec_push(&rev_list.args, "--stdin");
-	if (has_promisor_remote())
+	if (repo_has_promisor_remote(the_repository))
 		strvec_push(&rev_list.args, "--exclude-promisor-objects");
 	if (!opt->is_deepening_fetch) {
 		strvec_push(&rev_list.args, "--not");
@@ -140,7 +144,7 @@ no_promisor_pack_found:
 		 * are sure the ref is good and not sending it to
 		 * rev-list for verification.
 		 */
-		if (new_pack && find_pack_entry_one(oid->hash, new_pack))
+		if (new_pack && find_pack_entry_one(oid, new_pack))
 			continue;
 
 		if (fprintf(rev_list_in, "%s\n", oid_to_hex(oid)) < 0)

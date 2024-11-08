@@ -1,10 +1,13 @@
+#define USE_THE_REPOSITORY_VARIABLE
+
 #include "test-tool.h"
-#include "cache.h"
 #include "commit.h"
 #include "commit-reach.h"
-#include "config.h"
-#include "parse-options.h"
+#include "gettext.h"
+#include "hex.h"
+#include "object-name.h"
 #include "ref-filter.h"
+#include "setup.h"
 #include "string-list.h"
 #include "tag.h"
 
@@ -57,20 +60,20 @@ int cmd__reach(int ac, const char **av)
 		if (buf.len < 3)
 			continue;
 
-		if (get_oid_committish(buf.buf + 2, &oid))
+		if (repo_get_oid_committish(the_repository, buf.buf + 2, &oid))
 			die("failed to resolve %s", buf.buf + 2);
 
 		orig = parse_object(r, &oid);
-		peeled = deref_tag_noverify(orig);
+		peeled = deref_tag_noverify(the_repository, orig);
 
 		if (!peeled)
-			die("failed to load commit for input %s resulting in oid %s\n",
+			die("failed to load commit for input %s resulting in oid %s",
 			    buf.buf, oid_to_hex(&oid));
 
 		c = object_as_type(peeled, OBJ_COMMIT, 0);
 
 		if (!c)
-			die("failed to load commit for input %s resulting in oid %s\n",
+			die("failed to load commit for input %s resulting in oid %s",
 			    buf.buf, oid_to_hex(&oid));
 
 		switch (buf.buf[0]) {
@@ -106,13 +109,22 @@ int cmd__reach(int ac, const char **av)
 	if (!strcmp(av[1], "ref_newer"))
 		printf("%s(A,B):%d\n", av[1], ref_newer(&oid_A, &oid_B));
 	else if (!strcmp(av[1], "in_merge_bases"))
-		printf("%s(A,B):%d\n", av[1], in_merge_bases(A, B));
+		printf("%s(A,B):%d\n", av[1],
+		       repo_in_merge_bases(the_repository, A, B));
 	else if (!strcmp(av[1], "in_merge_bases_many"))
-		printf("%s(A,X):%d\n", av[1], in_merge_bases_many(A, X_nr, X_array));
+		printf("%s(A,X):%d\n", av[1],
+		       repo_in_merge_bases_many(the_repository, A, X_nr, X_array, 0));
 	else if (!strcmp(av[1], "is_descendant_of"))
 		printf("%s(A,X):%d\n", av[1], repo_is_descendant_of(r, A, X));
+	else if (!strcmp(av[1], "get_branch_base_for_tip"))
+		printf("%s(A,X):%d\n", av[1], get_branch_base_for_tip(r, A, X_array, X_nr));
 	else if (!strcmp(av[1], "get_merge_bases_many")) {
-		struct commit_list *list = get_merge_bases_many(A, X_nr, X_array);
+		struct commit_list *list = NULL;
+		if (repo_get_merge_bases_many(the_repository,
+					      A, X_nr,
+					      X_array,
+					      &list) < 0)
+			exit(128);
 		printf("%s(A,X):\n", av[1]);
 		print_sorted_commit_ids(list);
 	} else if (!strcmp(av[1], "reduce_heads")) {
@@ -131,7 +143,7 @@ int cmd__reach(int ac, const char **av)
 
 		printf("%s(X,_,_,0,0):%d\n", av[1], can_all_from_reach_with_flag(&X_obj, 2, 4, 0, 0));
 	} else if (!strcmp(av[1], "commit_contains")) {
-		struct ref_filter filter;
+		struct ref_filter filter = REF_FILTER_INIT;
 		struct contains_cache cache;
 		init_contains_cache(&cache);
 

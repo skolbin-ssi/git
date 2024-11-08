@@ -5,6 +5,7 @@ test_description='git p4 tests for p4 branches'
 GIT_TEST_DEFAULT_INITIAL_BRANCH_NAME=main
 export GIT_TEST_DEFAULT_INITIAL_BRANCH_NAME
 
+TEST_PASSES_SANITIZE_LEAK=true
 . ./lib-git-p4.sh
 
 test_expect_success 'start p4d' '
@@ -135,7 +136,7 @@ test_expect_success 'sync specific detected branch' '
 	(
 		cd "$git" &&
 		git p4 sync --branch=depot/branch2 >out &&
-		test_i18ngrep "No changes to import!" out
+		test_grep "No changes to import!" out
 	)
 '
 
@@ -466,7 +467,7 @@ test_expect_success 'git p4 clone complex branches with excluded files' '
 	)
 '
 
-# From a report in http://stackoverflow.com/questions/11893688
+# From a report in https://stackoverflow.com/questions/11893688
 # where --use-client-spec caused branch prefixes not to be removed;
 # every file in git appeared into a subdirectory of the branch name.
 test_expect_success 'use-client-spec detect-branches setup' '

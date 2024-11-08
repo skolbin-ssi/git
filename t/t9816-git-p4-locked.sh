@@ -2,6 +2,7 @@
 
 test_description='git p4 locked file behavior'
 
+TEST_PASSES_SANITIZE_LEAK=true
 . ./lib-git-p4.sh
 
 test_expect_success 'start p4d' '
@@ -9,7 +10,7 @@ test_expect_success 'start p4d' '
 '
 
 # See
-# http://www.perforce.com/perforce/doc.current/manuals/p4sag/03_superuser.html#1088563
+# https://web.archive.org/web/20150602090517/http://www.perforce.com/perforce/doc.current/manuals/p4sag/chapter.superuser.html#superuser.basic.typemap_locking
 # for suggestions on how to configure "sitewide pessimistic locking"
 # where only one person can have a file open for edit at a time.
 test_expect_success 'init depot' '

@@ -2,6 +2,7 @@
 
 test_description='rewrite diff'
 
+TEST_PASSES_SANITIZE_LEAK=true
 . ./test-lib.sh
 . "$TEST_DIRECTORY"/lib-diff-data.sh
 
@@ -24,7 +25,7 @@ test_expect_success setup '
 test_expect_success 'detect rewrite' '
 
 	actual=$(git diff-files -B --summary test) &&
-	verbose expr "$actual" : " rewrite test ([0-9]*%)$"
+	expr "$actual" : " rewrite test ([0-9]*%)$"
 
 '
 

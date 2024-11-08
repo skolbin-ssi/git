@@ -1,10 +1,9 @@
 /*
  * GIT - The information manager from hell
  */
-
-#include "cache.h"
-#include "refs.h"
 #include "builtin.h"
+#include "refs.h"
+#include "setup.h"
 #include "strbuf.h"
 
 static const char builtin_check_ref_format_usage[] =
@@ -51,7 +50,10 @@ static int check_ref_format_branch(const char *arg)
 	return 0;
 }
 
-int cmd_check_ref_format(int argc, const char **argv, const char *prefix)
+int cmd_check_ref_format(int argc,
+			 const char **argv,
+			 const char *prefix,
+			 struct repository *repo UNUSED)
 {
 	int i;
 	int normalize = 0;
@@ -59,6 +61,8 @@ int cmd_check_ref_format(int argc, const char **argv, const char *prefix)
 	const char *refname;
 	char *to_free = NULL;
 	int ret = 1;
+
+	BUG_ON_NON_EMPTY_PREFIX(prefix);
 
 	if (argc == 2 && !strcmp(argv[1], "-h"))
 		usage(builtin_check_ref_format_usage);

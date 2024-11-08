@@ -1,14 +1,19 @@
-#include "cache.h"
-#include "config.h"
+#define USE_THE_REPOSITORY_VARIABLE
 #include "builtin.h"
+#include "config.h"
+#include "gettext.h"
 #include "parse-options.h"
+#include "server-info.h"
 
 static const char * const update_server_info_usage[] = {
 	"git update-server-info [-f | --force]",
 	NULL
 };
 
-int cmd_update_server_info(int argc, const char **argv, const char *prefix)
+int cmd_update_server_info(int argc,
+			   const char **argv,
+			   const char *prefix,
+			   struct repository *repo UNUSED)
 {
 	int force = 0;
 	struct option options[] = {

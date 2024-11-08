@@ -1,5 +1,8 @@
+#define USE_THE_REPOSITORY_VARIABLE
 #include "builtin.h"
-#include "cache.h"
+#include "gettext.h"
+#include "hash.h"
+#include "hex.h"
 #include "pack.h"
 #include "parse-options.h"
 
@@ -8,7 +11,10 @@ static const char *const show_index_usage[] = {
 	NULL
 };
 
-int cmd_show_index(int argc, const char **argv, const char *prefix)
+int cmd_show_index(int argc,
+		   const char **argv,
+		   const char *prefix,
+		   struct repository *repo UNUSED)
 {
 	int i;
 	unsigned nr;

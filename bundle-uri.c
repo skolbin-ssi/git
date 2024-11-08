@@ -1,13 +1,19 @@
-#include "cache.h"
+#define USE_THE_REPOSITORY_VARIABLE
+
+#include "git-compat-util.h"
 #include "bundle-uri.h"
 #include "bundle.h"
-#include "object-store.h"
+#include "copy.h"
+#include "gettext.h"
 #include "refs.h"
 #include "run-command.h"
 #include "hashmap.h"
 #include "pkt-line.h"
 #include "config.h"
+#include "fetch-pack.h"
 #include "remote.h"
+#include "trace2.h"
+#include "object-store-ll.h"
 
 static struct {
 	enum bundle_list_heuristic heuristic;
@@ -17,7 +23,7 @@ static struct {
 	{ BUNDLE_HEURISTIC_CREATIONTOKEN, "creationToken" },
 };
 
-static int compare_bundles(const void *hashmap_cmp_fn_data,
+static int compare_bundles(const void *hashmap_cmp_fn_data UNUSED,
 			   const struct hashmap_entry *he1,
 			   const struct hashmap_entry *he2,
 			   const void *id)
@@ -42,7 +48,7 @@ void init_bundle_list(struct bundle_list *list)
 }
 
 static int clear_remote_bundle_info(struct remote_bundle_info *bundle,
-				    void *data)
+				    void *data UNUSED)
 {
 	FREE_AND_NULL(bundle->id);
 	FREE_AND_NULL(bundle->uri);
@@ -221,7 +227,9 @@ static int bundle_list_update(const char *key, const char *value,
 	return 0;
 }
 
-static int config_to_bundle_list(const char *key, const char *value, void *data)
+static int config_to_bundle_list(const char *key, const char *value,
+				 const struct config_context *ctx UNUSED,
+				 void *data)
 {
 	struct bundle_list *list = data;
 	return bundle_list_update(key, value, list);
@@ -250,6 +258,7 @@ int bundle_uri_parse_config_format(const char *uri,
 	}
 	result = git_config_from_file_with_options(config_to_bundle_list,
 						   filename, list,
+						   CONFIG_SCOPE_UNKNOWN,
 						   &opts);
 
 	if (!result && list->mode == BUNDLE_MODE_NONE) {
@@ -359,17 +368,23 @@ static int unbundle_from_file(struct repository *r, const char *file)
 	struct strbuf bundle_ref = STRBUF_INIT;
 	size_t bundle_prefix_len;
 
-	if ((bundle_fd = read_bundle_header(file, &header)) < 0)
-		return 1;
+	bundle_fd = read_bundle_header(file, &header);
+	if (bundle_fd < 0) {
+		result = 1;
+		goto cleanup;
+	}
 
 	/*
 	 * Skip the reachability walk here, since we will be adding
 	 * a reachable ref pointing to the new tips, which will reach
 	 * the prerequisite commits.
 	 */
-	if ((result = unbundle(r, &header, bundle_fd, NULL,
-			       VERIFY_BUNDLE_QUIET)))
-		return 1;
+	result = unbundle(r, &header, bundle_fd, NULL,
+			  VERIFY_BUNDLE_QUIET | (fetch_pack_fsck_objects() ? VERIFY_BUNDLE_FSCK : 0));
+	if (result) {
+		result = 1;
+		goto cleanup;
+	}
 
 	/*
 	 * Convert all refs/heads/ from the bundle into refs/bundles/
@@ -390,13 +405,16 @@ static int unbundle_from_file(struct repository *r, const char *file)
 		strbuf_setlen(&bundle_ref, bundle_prefix_len);
 		strbuf_addstr(&bundle_ref, branch_name);
 
-		has_old = !read_ref(bundle_ref.buf, &old_oid);
-		update_ref("fetched bundle", bundle_ref.buf, oid,
-			   has_old ? &old_oid : NULL,
-			   REF_SKIP_OID_VERIFICATION,
-			   UPDATE_REFS_MSG_ON_ERR);
+		has_old = !refs_read_ref(get_main_ref_store(the_repository),
+					 bundle_ref.buf, &old_oid);
+		refs_update_ref(get_main_ref_store(the_repository),
+				"fetched bundle", bundle_ref.buf, oid,
+				has_old ? &old_oid : NULL,
+				0, UPDATE_REFS_MSG_ON_ERR);
 	}
 
+cleanup:
+	strbuf_release(&bundle_ref);
 	bundle_header_release(&header);
 	return result;
 }
@@ -773,7 +791,7 @@ static int unbundle_all_bundles(struct repository *r,
 	return 0;
 }
 
-static int unlink_bundle(struct remote_bundle_info *info, void *data)
+static int unlink_bundle(struct remote_bundle_info *info, void *data UNUSED)
 {
 	if (info->file)
 		unlink_or_warn(info->file);
@@ -790,7 +808,18 @@ int fetch_bundle_uri(struct repository *r, const char *uri,
 		.id = xstrdup(""),
 	};
 
+	trace2_region_enter("fetch", "fetch-bundle-uri", the_repository);
+
 	init_bundle_list(&list);
+
+	/*
+	 * Do not fetch an empty bundle URI. An empty bundle URI
+	 * could signal that a configured bundle URI has been disabled.
+	 */
+	if (!*uri) {
+		result = 0;
+		goto cleanup;
+	}
 
 	/* If a bundle is added to this global list, then it is required. */
 	list.mode = BUNDLE_MODE_ALL;
@@ -806,6 +835,7 @@ cleanup:
 	for_all_bundles_in_list(&list, unlink_bundle, NULL);
 	clear_bundle_list(&list);
 	clear_remote_bundle_info(&bundle, NULL);
+	trace2_region_leave("fetch", "fetch-bundle-uri", the_repository);
 	return result;
 }
 
@@ -859,7 +889,9 @@ cached:
 	return advertise_bundle_uri;
 }
 
-static int config_to_packet_line(const char *key, const char *value, void *data)
+static int config_to_packet_line(const char *key, const char *value,
+				 const struct config_context *ctx UNUSED,
+				 void *data)
 {
 	struct packet_reader *writer = data;
 
@@ -884,7 +916,7 @@ int bundle_uri_command(struct repository *r,
 	 * Read all "bundle.*" config lines to the client as key=value
 	 * packet lines.
 	 */
-	git_config(config_to_packet_line, &writer);
+	repo_config(r, config_to_packet_line, &writer);
 
 	packet_writer_flush(&writer);
 

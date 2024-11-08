@@ -2,6 +2,7 @@
 
 test_description='test the `scalar clone` subcommand'
 
+TEST_PASSES_SANITIZE_LEAK=true
 . ./test-lib.sh
 . "${TEST_DIRECTORY}/lib-terminal.sh"
 
@@ -178,6 +179,18 @@ test_expect_success 'scalar clone warns when background maintenance fails' '
 	GIT_TEST_MAINT_SCHEDULER="crontab:false,launchctl:false,schtasks:false" \
 		scalar clone "file://$(pwd)/to-clone" maint-fail 2>err &&
 	grep "could not turn on maintenance" err
+'
+
+test_expect_success '`scalar clone --no-src`' '
+	scalar clone --src "file://$(pwd)/to-clone" with-src &&
+	scalar clone --no-src "file://$(pwd)/to-clone" without-src &&
+
+	test_path_is_dir with-src/src &&
+	test_path_is_missing without-src/src &&
+
+	(cd with-src/src && ls ?*) >with &&
+	(cd without-src && ls ?*) >without &&
+	test_cmp with without
 '
 
 test_done

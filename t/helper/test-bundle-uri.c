@@ -1,12 +1,11 @@
 #include "test-tool.h"
 #include "parse-options.h"
 #include "bundle-uri.h"
+#include "gettext.h"
 #include "strbuf.h"
 #include "string-list.h"
 #include "transport.h"
-#include "ref-filter.h"
 #include "remote.h"
-#include "refs.h"
 
 enum input_mode {
 	KEY_VALUE_PAIRS,
@@ -89,8 +88,6 @@ static int cmd_ls_remote(int argc, const char **argv)
 			die(_("bad repository '%s'"), dest);
 		die(_("no remote configured to get bundle URIs from"));
 	}
-	if (!remote->url_nr)
-		die(_("remote '%s' has no configured URL"), dest);
 
 	transport = transport_get(remote, NULL);
 	if (transport_get_remote_bundle_uri(transport) < 0) {

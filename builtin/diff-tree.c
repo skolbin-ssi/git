@@ -1,12 +1,15 @@
-#define USE_THE_INDEX_VARIABLE
-#include "cache.h"
+#define USE_THE_REPOSITORY_VARIABLE
+#include "builtin.h"
 #include "config.h"
 #include "diff.h"
 #include "commit.h"
+#include "gettext.h"
+#include "hex.h"
 #include "log-tree.h"
-#include "builtin.h"
-#include "submodule.h"
-#include "repository.h"
+#include "read-cache-ll.h"
+#include "revision.h"
+#include "tmp-objdir.h"
+#include "tree.h"
 
 static struct rev_info log_tree_opt;
 
@@ -95,7 +98,7 @@ static const char diff_tree_usage[] =
 "  --root        include the initial commit as diff against /dev/null\n"
 COMMON_DIFF_OPTIONS_HELP;
 
-static void diff_tree_tweak_rev(struct rev_info *rev, struct setup_revision_opt *opt)
+static void diff_tree_tweak_rev(struct rev_info *rev)
 {
 	if (!rev->diffopt.output_format) {
 		if (rev->dense_combined_merges)
@@ -105,7 +108,10 @@ static void diff_tree_tweak_rev(struct rev_info *rev, struct setup_revision_opt 
 	}
 }
 
-int cmd_diff_tree(int argc, const char **argv, const char *prefix)
+int cmd_diff_tree(int argc,
+		  const char **argv,
+		  const char *prefix,
+		  struct repository *repo UNUSED)
 {
 	char line[1000];
 	struct object *tree1, *tree2;
@@ -119,6 +125,10 @@ int cmd_diff_tree(int argc, const char **argv, const char *prefix)
 		usage(diff_tree_usage);
 
 	git_config(git_diff_basic_config, NULL); /* no "diff" UI options */
+
+	prepare_repo_settings(the_repository);
+	the_repository->settings.command_requires_full_index = 0;
+
 	repo_init_revisions(the_repository, opt, prefix);
 	if (repo_read_index(the_repository) < 0)
 		die(_("index file corrupt"));
@@ -199,7 +209,7 @@ int cmd_diff_tree(int argc, const char **argv, const char *prefix)
 		opt->diffopt.rotate_to_strict = 0;
 		opt->diffopt.no_free = 1;
 		if (opt->diffopt.detect_rename) {
-			if (!the_index.cache)
+			if (the_repository->index->cache)
 				repo_read_index(the_repository);
 			opt->diffopt.setup |= DIFF_SETUP_USE_SIZE_CACHE;
 		}
@@ -224,5 +234,5 @@ int cmd_diff_tree(int argc, const char **argv, const char *prefix)
 		diff_free(&opt->diffopt);
 	}
 
-	return diff_result_code(&opt->diffopt, 0);
+	return diff_result_code(opt);
 }

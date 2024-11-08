@@ -1,5 +1,10 @@
-#include "cache.h"
+#define USE_THE_REPOSITORY_VARIABLE
+
+#include "git-compat-util.h"
+#include "environment.h"
+#include "gettext.h"
 #include "range-diff.h"
+#include "object-name.h"
 #include "string-list.h"
 #include "run-command.h"
 #include "strvec.h"
@@ -8,7 +13,9 @@
 #include "linear-assignment.h"
 #include "diffcore.h"
 #include "commit.h"
+#include "pager.h"
 #include "pretty.h"
+#include "repository.h"
 #include "userdiff.h"
 #include "apply.h"
 #include "revision.h"
@@ -55,7 +62,7 @@ static int read_patches(const char *range, struct string_list *list,
 		     "--output-indicator-context=#",
 		     "--no-abbrev-commit",
 		     "--pretty=medium",
-		     "--notes",
+		     "--show-notes-by-default",
 		     NULL);
 	strvec_push(&cp.args, range);
 	if (other_arg)
@@ -94,7 +101,7 @@ static int read_patches(const char *range, struct string_list *list,
 				strbuf_reset(&buf);
 			}
 			CALLOC_ARRAY(util, 1);
-			if (get_oid(p, &util->oid)) {
+			if (repo_get_oid(the_repository, p, &util->oid)) {
 				error(_("could not parse commit '%s'"), p);
 				FREE_AND_NULL(util);
 				string_list_clear(list, 1);
@@ -225,16 +232,19 @@ cleanup:
 }
 
 static int patch_util_cmp(const void *cmp_data UNUSED,
-			  const struct patch_util *a,
-			  const struct patch_util *b,
-			  const char *keydata)
+			  const struct hashmap_entry *ha,
+			  const struct hashmap_entry *hb,
+			  const void *keydata)
 {
+	const struct patch_util
+		*a = container_of(ha, const struct patch_util, e),
+		*b = container_of(hb, const struct patch_util, e);
 	return strcmp(a->diff, keydata ? keydata : b->diff);
 }
 
 static void find_exact_matches(struct string_list *a, struct string_list *b)
 {
-	struct hashmap map = HASHMAP_INIT((hashmap_cmp_fn)patch_util_cmp, NULL);
+	struct hashmap map = HASHMAP_INIT(patch_util_cmp, NULL);
 	int i;
 
 	/* First, add the patches of a to a hash map */
@@ -383,11 +393,14 @@ static void output_pair_header(struct diff_options *diffopt,
 	const char *color_new = diff_get_color_opt(diffopt, DIFF_FILE_NEW);
 	const char *color_commit = diff_get_color_opt(diffopt, DIFF_COMMIT);
 	const char *color;
+	int abbrev = diffopt->abbrev;
+
+	if (abbrev < 0)
+		abbrev = DEFAULT_ABBREV;
 
 	if (!dashes->len)
 		strbuf_addchars(dashes, '-',
-				strlen(find_unique_abbrev(oid,
-							  DEFAULT_ABBREV)));
+				strlen(repo_find_unique_abbrev(the_repository, oid, abbrev)));
 
 	if (!b_util) {
 		color = color_old;
@@ -409,7 +422,7 @@ static void output_pair_header(struct diff_options *diffopt,
 		strbuf_addf(buf, "%*s:  %s ", patch_no_width, "-", dashes->buf);
 	else
 		strbuf_addf(buf, "%*d:  %s ", patch_no_width, a_util->i + 1,
-			    find_unique_abbrev(&a_util->oid, DEFAULT_ABBREV));
+			    repo_find_unique_abbrev(the_repository, &a_util->oid, abbrev));
 
 	if (status == '!')
 		strbuf_addf(buf, "%s%s", color_reset, color);
@@ -421,7 +434,7 @@ static void output_pair_header(struct diff_options *diffopt,
 		strbuf_addf(buf, " %*s:  %s", patch_no_width, "-", dashes->buf);
 	else
 		strbuf_addf(buf, " %*d:  %s", patch_no_width, b_util->i + 1,
-			    find_unique_abbrev(&b_util->oid, DEFAULT_ABBREV));
+			    repo_find_unique_abbrev(the_repository, &b_util->oid, abbrev));
 
 	commit = lookup_commit_reference(the_repository, oid);
 	if (commit) {
@@ -437,8 +450,10 @@ static void output_pair_header(struct diff_options *diffopt,
 }
 
 static struct userdiff_driver section_headers = {
-	.funcname = { "^ ## (.*) ##$\n"
-		      "^.?@@ (.*)$", REG_EXTENDED }
+	.funcname = {
+		.pattern = "^ ## (.*) ##$\n^.?@@ (.*)$",
+		.cflags = REG_EXTENDED,
+	},
 };
 
 static struct diff_filespec *get_filespec(const char *name, const char *p)
@@ -465,7 +480,7 @@ static void patch_diff(const char *a, const char *b,
 	diff_flush(diffopt);
 }
 
-static struct strbuf *output_prefix_cb(struct diff_options *opt UNUSED, void *data)
+static const char *output_prefix_cb(struct diff_options *opt UNUSED, void *data)
 {
 	return data;
 }
@@ -482,7 +497,7 @@ static void output(struct string_list *a, struct string_list *b,
 	if (range_diff_opts->diffopt)
 		memcpy(&opts, range_diff_opts->diffopt, sizeof(opts));
 	else
-		diff_setup(&opts);
+		repo_diff_setup(the_repository, &opts);
 
 	opts.no_free = 1;
 	if (!opts.output_format)
@@ -493,7 +508,7 @@ static void output(struct string_list *a, struct string_list *b,
 	opts.flags.suppress_hunk_header_line_count = 1;
 	opts.output_prefix = output_prefix_cb;
 	strbuf_addstr(&indent, "    ");
-	opts.output_prefix_data = &indent;
+	opts.output_prefix_data = indent.buf;
 	diff_setup_done(&opts);
 
 	/*
@@ -585,7 +600,7 @@ int is_range_diff_range(const char *arg)
 	int i, positive = 0, negative = 0;
 	struct rev_info revs;
 
-	init_revisions(&revs, NULL);
+	repo_init_revisions(the_repository, &revs, NULL);
 	if (setup_revisions(3, argv, &revs, NULL) == 1) {
 		for (i = 0; i < revs.pending.nr; i++)
 			if (revs.pending.objects[i].item->flags & UNINTERESTING)

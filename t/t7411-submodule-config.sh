@@ -10,6 +10,7 @@ from the database and from the worktree works.
 '
 
 TEST_NO_CREATE_REPO=1
+TEST_PASSES_SANITIZE_LEAK=true
 . ./test-lib.sh
 
 test_expect_success 'setup' '
@@ -45,7 +46,7 @@ test_expect_success 'configuration parsing with error' '
 	(
 		cd repo &&
 		test_must_fail test-tool submodule-config "" s 2>actual &&
-		test_i18ngrep "bad config" actual
+		test_grep "bad config" actual
 	)
 '
 
@@ -101,7 +102,7 @@ test_expect_success 'error in history of one submodule config lets continue, std
 				>actual \
 				2>actual_stderr &&
 		test_cmp expect_error actual &&
-		test_i18ngrep "submodule-blob $sha1:.gitmodules" actual_stderr >/dev/null
+		test_grep "submodule-blob $sha1:.gitmodules" actual_stderr >/dev/null
 	)
 '
 

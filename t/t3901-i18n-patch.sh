@@ -8,7 +8,14 @@ test_description='i18n settings and format-patch | am pipe'
 GIT_TEST_DEFAULT_INITIAL_BRANCH_NAME=main
 export GIT_TEST_DEFAULT_INITIAL_BRANCH_NAME
 
+TEST_PASSES_SANITIZE_LEAK=true
 . ./test-lib.sh
+
+if ! test_have_prereq ICONV
+then
+	skip_all='skipping patch i18n tests; iconv not available'
+	test_done
+fi
 
 check_encoding () {
 	# Make sure characters are not corrupted
@@ -298,7 +305,7 @@ test_expect_success 'am --no-utf8 (U/L)' '
 
 	# commit-tree will warn that the commit message does not contain valid UTF-8
 	# as mailinfo did not convert it
-	test_i18ngrep "did not conform" err &&
+	test_grep "did not conform" err &&
 
 	check_encoding 2
 '

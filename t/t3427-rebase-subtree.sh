@@ -7,6 +7,7 @@ This test runs git rebase and tests the subtree strategy.
 GIT_TEST_DEFAULT_INITIAL_BRANCH_NAME=main
 export GIT_TEST_DEFAULT_INITIAL_BRANCH_NAME
 
+TEST_PASSES_SANITIZE_LEAK=true
 . ./test-lib.sh
 . "$TEST_DIRECTORY"/lib-rebase.sh
 
@@ -74,9 +75,9 @@ test_expect_success 'Rebase -Xsubtree --empty=ask --onto commit' '
 	test_must_fail git rebase -Xsubtree=files_subtree --empty=ask --onto files-main main &&
 	: first pick results in no changes &&
 	git rebase --skip &&
-	verbose test "$(commit_message HEAD~2)" = "topic_4" &&
-	verbose test "$(commit_message HEAD~)" = "files_subtree/topic_5" &&
-	verbose test "$(commit_message HEAD)" = "Empty commit"
+	test "$(commit_message HEAD~2)" = "topic_4" &&
+	test "$(commit_message HEAD~)" = "files_subtree/topic_5" &&
+	test "$(commit_message HEAD)" = "Empty commit"
 '
 
 test_expect_success 'Rebase -Xsubtree --empty=ask --rebase-merges --onto commit' '
@@ -85,9 +86,9 @@ test_expect_success 'Rebase -Xsubtree --empty=ask --rebase-merges --onto commit'
 	test_must_fail git rebase -Xsubtree=files_subtree --empty=ask --rebase-merges --onto files-main --root &&
 	: first pick results in no changes &&
 	git rebase --skip &&
-	verbose test "$(commit_message HEAD~2)" = "topic_4" &&
-	verbose test "$(commit_message HEAD~)" = "files_subtree/topic_5" &&
-	verbose test "$(commit_message HEAD)" = "Empty commit"
+	test "$(commit_message HEAD~2)" = "topic_4" &&
+	test "$(commit_message HEAD~)" = "files_subtree/topic_5" &&
+	test "$(commit_message HEAD)" = "Empty commit"
 '
 
 test_done

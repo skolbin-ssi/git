@@ -2,6 +2,7 @@
 
 test_description='rewrite diff on binary file'
 
+TEST_PASSES_SANITIZE_LEAK=true
 . ./test-lib.sh
 
 # We must be large enough to meet the MINIMUM_BREAK_SIZE
@@ -53,7 +54,7 @@ test_expect_success 'rewrite diff --numstat shows binary changes' '
 test_expect_success 'diff --stat counts binary rewrite as 0 lines' '
 	git diff -B --stat --summary >diff &&
 	grep "Bin" diff &&
-	test_i18ngrep "0 insertions.*0 deletions" diff &&
+	test_grep "0 insertions.*0 deletions" diff &&
 	grep " rewrite file" diff
 '
 

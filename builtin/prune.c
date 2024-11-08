@@ -1,13 +1,21 @@
-#include "cache.h"
+#define USE_THE_REPOSITORY_VARIABLE
+#include "builtin.h"
 #include "commit.h"
 #include "diff.h"
+#include "dir.h"
+#include "environment.h"
+#include "gettext.h"
+#include "hex.h"
 #include "revision.h"
-#include "builtin.h"
 #include "reachable.h"
 #include "parse-options.h"
+#include "path.h"
 #include "progress.h"
 #include "prune-packed.h"
-#include "object-store.h"
+#include "replace-object.h"
+#include "object-file.h"
+#include "object-name.h"
+#include "object-store-ll.h"
 #include "shallow.h"
 
 static const char * const prune_usage[] = {
@@ -98,7 +106,8 @@ static int prune_object(const struct object_id *oid, const char *fullpath,
 	return 0;
 }
 
-static int prune_cruft(const char *basename, const char *path, void *data)
+static int prune_cruft(const char *basename, const char *path,
+		       void *data UNUSED)
 {
 	if (starts_with(basename, "tmp_obj_"))
 		prune_tmp_file(path);
@@ -107,7 +116,8 @@ static int prune_cruft(const char *basename, const char *path, void *data)
 	return 0;
 }
 
-static int prune_subdir(unsigned int nr, const char *path, void *data)
+static int prune_subdir(unsigned int nr UNUSED, const char *path,
+			void *data UNUSED)
 {
 	if (!show_only)
 		rmdir(path);
@@ -138,7 +148,10 @@ static void remove_temporary_files(const char *path)
 	closedir(dir);
 }
 
-int cmd_prune(int argc, const char **argv, const char *prefix)
+int cmd_prune(int argc,
+	      const char **argv,
+	      const char *prefix,
+	      struct repository *repo UNUSED)
 {
 	struct rev_info revs;
 	int exclude_promisor_objects = 0;
@@ -156,7 +169,7 @@ int cmd_prune(int argc, const char **argv, const char *prefix)
 
 	expire = TIME_MAX;
 	save_commit_buffer = 0;
-	read_replace_refs = 0;
+	disable_replace_refs();
 	repo_init_revisions(the_repository, &revs, prefix);
 
 	argc = parse_options(argc, argv, prefix, options, prune_usage, 0);
@@ -168,7 +181,7 @@ int cmd_prune(int argc, const char **argv, const char *prefix)
 		struct object_id oid;
 		const char *name = *argv++;
 
-		if (!get_oid(name, &oid)) {
+		if (!repo_get_oid(the_repository, name, &oid)) {
 			struct object *object = parse_object_or_die(&oid,
 								    name);
 			add_pending_object(&revs, object, "");
@@ -184,12 +197,12 @@ int cmd_prune(int argc, const char **argv, const char *prefix)
 		revs.exclude_promisor_objects = 1;
 	}
 
-	for_each_loose_file_in_objdir(get_object_directory(), prune_object,
-				      prune_cruft, prune_subdir, &revs);
+	for_each_loose_file_in_objdir(repo_get_object_directory(the_repository),
+				      prune_object, prune_cruft, prune_subdir, &revs);
 
 	prune_packed_objects(show_only ? PRUNE_PACKED_DRY_RUN : 0);
-	remove_temporary_files(get_object_directory());
-	s = mkpathdup("%s/pack", get_object_directory());
+	remove_temporary_files(repo_get_object_directory(the_repository));
+	s = mkpathdup("%s/pack", repo_get_object_directory(the_repository));
 	remove_temporary_files(s);
 	free(s);
 

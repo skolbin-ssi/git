@@ -122,6 +122,29 @@ test_expect_success 'bisect start without -- takes unknown arg as pathspec' '
 	grep bar ".git/BISECT_NAMES"
 '
 
+test_expect_success 'bisect reset: back in a branch checked out also elsewhere' '
+	echo "shared" > branch.expect &&
+	test_bisect_reset() {
+		git -C $1 bisect start &&
+		git -C $1 bisect good $HASH1 &&
+		git -C $1 bisect bad $HASH3 &&
+		git -C $1 bisect reset &&
+		git -C $1 branch --show-current > branch.output &&
+		cmp branch.expect branch.output
+	} &&
+	test_when_finished "
+		git worktree remove wt1 &&
+		git worktree remove wt2 &&
+		git branch -d shared
+	" &&
+	git worktree add wt1 -b shared &&
+	git worktree add wt2 -f shared &&
+	# we test in both worktrees to ensure that works
+	# as expected with "first" and "next" worktrees
+	test_bisect_reset wt1 &&
+	test_bisect_reset wt2
+'
+
 test_expect_success 'bisect reset: back in the main branch' '
 	git bisect reset &&
 	echo "* main" > branch.expect &&
@@ -145,6 +168,12 @@ test_expect_success 'bisect reset when not bisecting' '
 	git bisect reset &&
 	git branch > branch.output &&
 	cmp branch.expect branch.output
+'
+
+test_expect_success 'bisect reset cleans up even when not bisecting' '
+	echo garbage >.git/BISECT_LOG &&
+	git bisect reset &&
+	test_path_is_missing .git/BISECT_LOG
 '
 
 test_expect_success 'bisect reset removes packed refs' '
@@ -197,7 +226,7 @@ test_expect_success 'bisect start: existing ".git/BISECT_START" not modified if 
 	cp .git/BISECT_START saved &&
 	test_must_fail git bisect start $HASH4 foo -- &&
 	git branch > branch.output &&
-	test_i18ngrep "* (no branch, bisect started on other)" branch.output > /dev/null &&
+	test_grep "* (no branch, bisect started on other)" branch.output > /dev/null &&
 	test_cmp saved .git/BISECT_START
 '
 test_expect_success 'bisect start: no ".git/BISECT_START" if mistaken rev' '
@@ -565,7 +594,7 @@ test_expect_success 'bisect starting with a detached HEAD' '
 test_expect_success 'bisect errors out if bad and good are mistaken' '
 	git bisect reset &&
 	test_must_fail git bisect start $HASH2 $HASH4 2> rev_list_error &&
-	test_i18ngrep "mistook good and bad" rev_list_error &&
+	test_grep "mistook good and bad" rev_list_error &&
 	git bisect reset
 '
 
@@ -607,7 +636,7 @@ test_expect_success 'side branch creation' '
 
 test_expect_success 'good merge base when good and bad are siblings' '
 	git bisect start "$HASH7" "$SIDE_HASH7" > my_bisect_log.txt &&
-	test_i18ngrep "merge base must be tested" my_bisect_log.txt &&
+	test_grep "merge base must be tested" my_bisect_log.txt &&
 	grep $HASH4 my_bisect_log.txt &&
 	git bisect good > my_bisect_log.txt &&
 	! grep "merge base must be tested" my_bisect_log.txt &&
@@ -616,7 +645,7 @@ test_expect_success 'good merge base when good and bad are siblings' '
 '
 test_expect_success 'skipped merge base when good and bad are siblings' '
 	git bisect start "$SIDE_HASH7" "$HASH7" > my_bisect_log.txt &&
-	test_i18ngrep "merge base must be tested" my_bisect_log.txt &&
+	test_grep "merge base must be tested" my_bisect_log.txt &&
 	grep $HASH4 my_bisect_log.txt &&
 	git bisect skip > my_bisect_log.txt 2>&1 &&
 	grep "warning" my_bisect_log.txt &&
@@ -626,11 +655,11 @@ test_expect_success 'skipped merge base when good and bad are siblings' '
 
 test_expect_success 'bad merge base when good and bad are siblings' '
 	git bisect start "$HASH7" HEAD > my_bisect_log.txt &&
-	test_i18ngrep "merge base must be tested" my_bisect_log.txt &&
+	test_grep "merge base must be tested" my_bisect_log.txt &&
 	grep $HASH4 my_bisect_log.txt &&
 	test_must_fail git bisect bad > my_bisect_log.txt 2>&1 &&
-	test_i18ngrep "merge base $HASH4 is bad" my_bisect_log.txt &&
-	test_i18ngrep "fixed between $HASH4 and \[$SIDE_HASH7\]" my_bisect_log.txt &&
+	test_grep "merge base $HASH4 is bad" my_bisect_log.txt &&
+	test_grep "fixed between $HASH4 and \[$SIDE_HASH7\]" my_bisect_log.txt &&
 	git bisect reset
 '
 
@@ -681,9 +710,9 @@ test_expect_success '"git bisect run --first-parent" simple case' '
 
 test_expect_success 'good merge bases when good and bad are siblings' '
 	git bisect start "$B_HASH" "$A_HASH" > my_bisect_log.txt &&
-	test_i18ngrep "merge base must be tested" my_bisect_log.txt &&
+	test_grep "merge base must be tested" my_bisect_log.txt &&
 	git bisect good > my_bisect_log2.txt &&
-	test_i18ngrep "merge base must be tested" my_bisect_log2.txt &&
+	test_grep "merge base must be tested" my_bisect_log2.txt &&
 	{
 		{
 			grep "$SIDE_HASH5" my_bisect_log.txt &&
@@ -698,14 +727,14 @@ test_expect_success 'good merge bases when good and bad are siblings' '
 
 test_expect_success 'optimized merge base checks' '
 	git bisect start "$HASH7" "$SIDE_HASH7" > my_bisect_log.txt &&
-	test_i18ngrep "merge base must be tested" my_bisect_log.txt &&
+	test_grep "merge base must be tested" my_bisect_log.txt &&
 	grep "$HASH4" my_bisect_log.txt &&
 	git bisect good > my_bisect_log2.txt &&
 	test -f ".git/BISECT_ANCESTORS_OK" &&
 	test "$HASH6" = $(git rev-parse --verify HEAD) &&
 	git bisect bad &&
 	git bisect good "$A_HASH" > my_bisect_log4.txt &&
-	test_i18ngrep "merge base must be tested" my_bisect_log4.txt &&
+	test_grep "merge base must be tested" my_bisect_log4.txt &&
 	test_path_is_missing ".git/BISECT_ANCESTORS_OK"
 '
 
@@ -783,7 +812,7 @@ test_expect_success 'skipping away from skipped commit' '
 
 test_expect_success 'erroring out when using bad path arguments' '
 	test_must_fail git bisect start $PARA_HASH7 $HASH1 -- foobar 2> error.txt &&
-	test_i18ngrep "bad path arguments" error.txt
+	test_grep "bad path arguments" error.txt
 '
 
 test_expect_success 'test bisection on bare repo - --no-checkout specified' '
@@ -849,7 +878,7 @@ test_expect_success 'broken branch creation' '
 
 echo "" > expected.ok
 cat > expected.missing-tree.default <<EOF
-fatal: unable to read tree $deleted
+fatal: unable to read tree ($deleted)
 EOF
 
 test_expect_success 'bisect fails if tree is broken on start commit' '
@@ -1153,7 +1182,7 @@ test_expect_success 'git bisect reset cleans bisection state properly' '
 	git bisect bad $HASH4 &&
 	git bisect reset &&
 	test -z "$(git for-each-ref "refs/bisect/*")" &&
-	test_path_is_missing ".git/BISECT_EXPECTED_REV" &&
+	test_ref_missing BISECT_EXPECTED_REV &&
 	test_path_is_missing ".git/BISECT_ANCESTORS_OK" &&
 	test_path_is_missing ".git/BISECT_LOG" &&
 	test_path_is_missing ".git/BISECT_RUN" &&

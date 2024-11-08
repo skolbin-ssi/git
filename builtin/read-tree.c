@@ -3,22 +3,23 @@
  *
  * Copyright (C) Linus Torvalds, 2005
  */
-
-#define USE_THE_INDEX_VARIABLE
-#include "cache.h"
+#define USE_THE_REPOSITORY_VARIABLE
+#include "builtin.h"
 #include "config.h"
+#include "gettext.h"
+#include "hex.h"
 #include "lockfile.h"
 #include "object.h"
+#include "object-name.h"
 #include "tree.h"
 #include "tree-walk.h"
 #include "cache-tree.h"
 #include "unpack-trees.h"
-#include "dir.h"
-#include "builtin.h"
 #include "parse-options.h"
 #include "resolve-undo.h"
+#include "setup.h"
+#include "sparse-index.h"
 #include "submodule.h"
-#include "submodule-config.h"
 
 static int nr_trees;
 static int read_empty;
@@ -44,7 +45,7 @@ static const char * const read_tree_usage[] = {
 	NULL
 };
 
-static int index_output_cb(const struct option *opt, const char *arg,
+static int index_output_cb(const struct option *opt UNUSED, const char *arg,
 				 int unset)
 {
 	BUG_ON_OPT_NEG(unset);
@@ -87,9 +88,9 @@ static int debug_merge(const struct cache_entry * const *stages,
 {
 	int i;
 
-	printf("* %d-way merge\n", o->merge_size);
+	printf("* %d-way merge\n", o->internal.merge_size);
 	debug_stage("index", stages[0], o);
-	for (i = 1; i <= o->merge_size; i++) {
+	for (i = 1; i <= o->internal.merge_size; i++) {
 		char buf[24];
 		xsnprintf(buf, sizeof(buf), "ent#%d", i);
 		debug_stage(buf, stages[i], o);
@@ -97,15 +98,19 @@ static int debug_merge(const struct cache_entry * const *stages,
 	return 0;
 }
 
-static int git_read_tree_config(const char *var, const char *value, void *cb)
+static int git_read_tree_config(const char *var, const char *value,
+				const struct config_context *ctx, void *cb)
 {
 	if (!strcmp(var, "submodule.recurse"))
 		return git_default_submodule_config(var, value, cb);
 
-	return git_default_config(var, value, cb);
+	return git_default_config(var, value, ctx, cb);
 }
 
-int cmd_read_tree(int argc, const char **argv, const char *cmd_prefix)
+int cmd_read_tree(int argc,
+		  const char **argv,
+		  const char *cmd_prefix,
+		  struct repository *repo UNUSED)
 {
 	int i, stage = 0;
 	struct object_id oid;
@@ -144,7 +149,7 @@ int cmd_read_tree(int argc, const char **argv, const char *cmd_prefix)
 		OPT__DRY_RUN(&opts.dry_run, N_("don't update the index or the work tree")),
 		OPT_BOOL(0, "no-sparse-checkout", &opts.skip_sparse_checkout,
 			 N_("skip applying sparse checkout filter")),
-		OPT_BOOL(0, "debug-unpack", &opts.debug_unpack,
+		OPT_BOOL(0, "debug-unpack", &opts.internal.debug_unpack,
 			 N_("debug unpack-trees")),
 		OPT_CALLBACK_F(0, "recurse-submodules", NULL,
 			    "checkout", "control recursive updating of submodules",
@@ -155,8 +160,8 @@ int cmd_read_tree(int argc, const char **argv, const char *cmd_prefix)
 
 	memset(&opts, 0, sizeof(opts));
 	opts.head_idx = -1;
-	opts.src_index = &the_index;
-	opts.dst_index = &the_index;
+	opts.src_index = the_repository->index;
+	opts.dst_index = the_repository->index;
 
 	git_config(git_read_tree_config, NULL);
 
@@ -193,12 +198,12 @@ int cmd_read_tree(int argc, const char **argv, const char *cmd_prefix)
 			die(_("You need to resolve your current index first"));
 		stage = opts.merge = 1;
 	}
-	resolve_undo_clear_index(&the_index);
+	resolve_undo_clear_index(the_repository->index);
 
 	for (i = 0; i < argc; i++) {
 		const char *arg = argv[i];
 
-		if (get_oid(arg, &oid))
+		if (repo_get_oid(the_repository, arg, &oid))
 			die("Not a valid object name %s", arg);
 		if (list_tree(&oid) < 0)
 			die("failed to unpack tree object %s", arg);
@@ -221,7 +226,7 @@ int cmd_read_tree(int argc, const char **argv, const char *cmd_prefix)
 		setup_work_tree();
 
 	if (opts.skip_sparse_checkout)
-		ensure_full_index(&the_index);
+		ensure_full_index(the_repository->index);
 
 	if (opts.merge) {
 		switch (stage - 1) {
@@ -233,7 +238,7 @@ int cmd_read_tree(int argc, const char **argv, const char *cmd_prefix)
 			break;
 		case 2:
 			opts.fn = twoway_merge;
-			opts.initial_checkout = is_index_unborn(&the_index);
+			opts.initial_checkout = is_index_unborn(the_repository->index);
 			break;
 		case 3:
 		default:
@@ -247,23 +252,24 @@ int cmd_read_tree(int argc, const char **argv, const char *cmd_prefix)
 			opts.head_idx = 1;
 	}
 
-	if (opts.debug_unpack)
+	if (opts.internal.debug_unpack)
 		opts.fn = debug_merge;
 
 	/* If we're going to prime_cache_tree later, skip cache tree update */
 	if (nr_trees == 1 && !opts.prefix)
 		opts.skip_cache_tree_update = 1;
 
-	cache_tree_free(&the_index.cache_tree);
+	cache_tree_free(&the_repository->index->cache_tree);
 	for (i = 0; i < nr_trees; i++) {
 		struct tree *tree = trees[i];
-		parse_tree(tree);
-		init_tree_desc(t+i, tree->buffer, tree->size);
+		if (parse_tree(tree) < 0)
+			return 128;
+		init_tree_desc(t+i, &tree->object.oid, tree->buffer, tree->size);
 	}
 	if (unpack_trees(nr_trees, t, &opts))
 		return 128;
 
-	if (opts.debug_unpack || opts.dry_run)
+	if (opts.internal.debug_unpack || opts.dry_run)
 		return 0; /* do not write the index out */
 
 	/*
@@ -277,7 +283,7 @@ int cmd_read_tree(int argc, const char **argv, const char *cmd_prefix)
 				 the_repository->index,
 				 trees[0]);
 
-	if (write_locked_index(&the_index, &lock_file, COMMIT_LOCK))
+	if (write_locked_index(the_repository->index, &lock_file, COMMIT_LOCK))
 		die("unable to write new index file");
 	return 0;
 }

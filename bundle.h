@@ -2,7 +2,6 @@
 #define BUNDLE_H
 
 #include "strvec.h"
-#include "cache.h"
 #include "string-list.h"
 #include "list-objects-filter-options.h"
 
@@ -34,6 +33,7 @@ int create_bundle(struct repository *r, const char *path,
 enum verify_bundle_flags {
 	VERIFY_BUNDLE_VERBOSE = (1 << 0),
 	VERIFY_BUNDLE_QUIET = (1 << 1),
+	VERIFY_BUNDLE_FSCK = (1 << 2),
 };
 
 int verify_bundle(struct repository *r, struct bundle_header *header,

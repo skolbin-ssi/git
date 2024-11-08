@@ -5,6 +5,7 @@ test_description='blob conversion via gitattributes'
 GIT_TEST_DEFAULT_INITIAL_BRANCH_NAME=main
 export GIT_TEST_DEFAULT_INITIAL_BRANCH_NAME
 
+TEST_PASSES_SANITIZE_LEAK=true
 . ./test-lib.sh
 . "$TEST_DIRECTORY"/lib-terminal.sh
 
@@ -263,7 +264,7 @@ test_expect_success 'required filter with absent clean field' '
 
 	echo test >test.ac &&
 	test_must_fail git add test.ac 2>stderr &&
-	test_i18ngrep "fatal: test.ac: clean filter .absentclean. failed" stderr
+	test_grep "fatal: test.ac: clean filter .absentclean. failed" stderr
 '
 
 test_expect_success 'required filter with absent smudge field' '
@@ -276,7 +277,7 @@ test_expect_success 'required filter with absent smudge field' '
 	git add test.as &&
 	rm -f test.as &&
 	test_must_fail git checkout -- test.as 2>stderr &&
-	test_i18ngrep "fatal: test.as: smudge filter absentsmudge failed" stderr
+	test_grep "fatal: test.as: smudge filter absentsmudge failed" stderr
 '
 
 test_expect_success 'filtering large input to small output should use little memory' '
@@ -733,7 +734,7 @@ test_expect_success 'process filter should restart after unexpected write failur
 		git checkout --quiet --no-progress . 2>git-stderr.log &&
 
 		grep "smudge write error" git-stderr.log &&
-		test_i18ngrep "error: external filter" git-stderr.log &&
+		test_grep "error: external filter" git-stderr.log &&
 
 		cat >expected.log <<-EOF &&
 			START
@@ -1115,11 +1116,11 @@ do
 		test_delayed_checkout_progress test_terminal git checkout $opt
 	'
 
-	test_expect_success PERL "delayed checkout ommits progress on non-tty ($mode checkout)" '
+	test_expect_success PERL "delayed checkout omits progress on non-tty ($mode checkout)" '
 		test_delayed_checkout_progress ! git checkout $opt
 	'
 
-	test_expect_success PERL,TTY "delayed checkout ommits progress with --quiet ($mode checkout)" '
+	test_expect_success PERL,TTY "delayed checkout omits progress with --quiet ($mode checkout)" '
 		test_delayed_checkout_progress ! test_terminal git checkout --quiet $opt
 	'
 

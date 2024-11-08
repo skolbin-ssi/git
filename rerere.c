@@ -1,16 +1,23 @@
-#include "cache.h"
+#define USE_THE_REPOSITORY_VARIABLE
+
+#include "git-compat-util.h"
+#include "abspath.h"
 #include "config.h"
+#include "copy.h"
+#include "gettext.h"
+#include "hex.h"
 #include "lockfile.h"
 #include "string-list.h"
+#include "read-cache-ll.h"
 #include "rerere.h"
 #include "xdiff-interface.h"
 #include "dir.h"
 #include "resolve-undo.h"
-#include "ll-merge.h"
-#include "attr.h"
+#include "merge-ll.h"
+#include "path.h"
 #include "pathspec.h"
-#include "object-store.h"
-#include "hash-lookup.h"
+#include "object-file.h"
+#include "object-store-ll.h"
 #include "strmap.h"
 
 #define RESOLVED 0
@@ -197,7 +204,7 @@ static void read_rr(struct repository *r, struct string_list *rr)
 		const unsigned hexsz = the_hash_algo->hexsz;
 
 		/* There has to be the hash, tab, path and then NUL */
-		if (buf.len < hexsz + 2 || get_sha1_hex(buf.buf, hash))
+		if (buf.len < hexsz + 2 || get_hash_hex(buf.buf, hash))
 			die(_("corrupt MERGE_RR"));
 
 		if (buf.buf[hexsz] != '.') {
@@ -214,6 +221,11 @@ static void read_rr(struct repository *r, struct string_list *rr)
 		buf.buf[hexsz] = '\0';
 		id = new_rerere_id_hex(buf.buf);
 		id->variant = variant;
+		/*
+		 * make sure id->collection->status has enough space
+		 * for the variant we are interested in
+		 */
+		fit_variant(id->collection, variant);
 		string_list_insert(rr, path)->util = id;
 	}
 	strbuf_release(&buf);
@@ -839,6 +851,8 @@ static int do_plain_rerere(struct repository *r,
 	if (update.nr)
 		update_paths(r, &update);
 
+	string_list_clear(&conflict, 0);
+	string_list_clear(&update, 0);
 	return write_rr(rr, fd);
 }
 
@@ -902,6 +916,7 @@ int repo_rerere(struct repository *r, int flags)
 		return 0;
 	status = do_plain_rerere(r, &merge_rr, fd);
 	free_rerere_dirs();
+	string_list_clear(&merge_rr, 1);
 	return status;
 }
 
@@ -965,8 +980,12 @@ static int handle_cache(struct index_state *istate,
 			break;
 		i = ce_stage(ce) - 1;
 		if (!mmfile[i].ptr) {
-			mmfile[i].ptr = read_object_file(&ce->oid, &type,
-							 &size);
+			mmfile[i].ptr = repo_read_object_file(the_repository,
+							      &ce->oid, &type,
+							      &size);
+			if (!mmfile[i].ptr)
+				die(_("unable to read %s"),
+				    oid_to_hex(&ce->oid));
 			mmfile[i].size = size;
 		}
 	}
@@ -1088,7 +1107,7 @@ fail_exit:
 
 int rerere_forget(struct repository *r, struct pathspec *pathspec)
 {
-	int i, fd;
+	int i, fd, ret;
 	struct string_list conflict = STRING_LIST_INIT_DUP;
 	struct string_list merge_rr = STRING_LIST_INIT_DUP;
 
@@ -1104,7 +1123,7 @@ int rerere_forget(struct repository *r, struct pathspec *pathspec)
 	 * recover the original conflicted state and then
 	 * find the conflicted paths.
 	 */
-	unmerge_index(r->index, pathspec);
+	unmerge_index(r->index, pathspec, 0);
 	find_conflict(r, &conflict);
 	for (i = 0; i < conflict.nr; i++) {
 		struct string_list_item *it = &conflict.items[i];
@@ -1113,7 +1132,12 @@ int rerere_forget(struct repository *r, struct pathspec *pathspec)
 			continue;
 		rerere_forget_one_path(r->index, it->string, &merge_rr);
 	}
-	return write_rr(&merge_rr, fd);
+
+	ret = write_rr(&merge_rr, fd);
+
+	string_list_clear(&conflict, 0);
+	string_list_clear(&merge_rr, 1);
+	return ret;
 }
 
 /*
@@ -1184,8 +1208,10 @@ void rerere_gc(struct repository *r, struct string_list *rr)
 	if (setup_rerere(r, rr, 0) < 0)
 		return;
 
-	git_config_get_expiry_in_days("gc.rerereresolved", &cutoff_resolve, now);
-	git_config_get_expiry_in_days("gc.rerereunresolved", &cutoff_noresolve, now);
+	repo_config_get_expiry_in_days(the_repository, "gc.rerereresolved",
+				       &cutoff_resolve, now);
+	repo_config_get_expiry_in_days(the_repository, "gc.rerereunresolved",
+				       &cutoff_noresolve, now);
 	git_config(git_default_config, NULL);
 	dir = opendir(git_path("rr-cache"));
 	if (!dir)

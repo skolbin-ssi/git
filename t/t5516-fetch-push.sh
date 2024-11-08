@@ -19,6 +19,7 @@ GIT_TEST_DEFAULT_INITIAL_BRANCH_NAME=main
 export GIT_TEST_DEFAULT_INITIAL_BRANCH_NAME
 
 TEST_CREATE_REPO_NO_TEMPLATE=1
+TEST_PASSES_SANITIZE_LEAK=true
 . ./test-lib.sh
 
 D=$(pwd)
@@ -120,6 +121,17 @@ test_expect_success setup '
 
 '
 
+for cmd in push fetch
+do
+	for opt in ipv4 ipv6
+	do
+		test_expect_success "reject 'git $cmd --no-$opt'" '
+			test_must_fail git $cmd --no-$opt 2>err &&
+			grep "unknown option .no-$opt" err
+		'
+	done
+done
+
 test_expect_success 'fetch without wildcard' '
 	mk_empty testrepo &&
 	(
@@ -216,7 +228,17 @@ test_expect_success 'push with negotiation proceeds anyway even if negotiation f
 	GIT_TEST_PROTOCOL_VERSION=0 GIT_TRACE2_EVENT="$(pwd)/event" \
 		git -c push.negotiate=1 push testrepo refs/heads/main:refs/remotes/origin/main 2>err &&
 	grep_wrote 5 event && # 2 commits, 2 trees, 1 blob
-	test_i18ngrep "push negotiation failed" err
+	test_grep "push negotiation failed" err
+'
+
+test_expect_success 'push deletion with negotiation' '
+	mk_empty testrepo &&
+	git push testrepo $the_first_commit:refs/heads/master &&
+	git -c push.negotiate=1 push testrepo \
+		:master $the_first_commit:refs/heads/next 2>errors-2 &&
+	test_grep ! "negotiate-only needs one or " errors-2 &&
+	git -c push.negotiate=1 push testrepo :next 2>errors-1 &&
+	test_grep ! "negotiate-only needs one or " errors-1
 '
 
 test_expect_success 'push with negotiation does not attempt to fetch submodules' '
@@ -399,6 +421,11 @@ test_expect_success 'push with ambiguity' '
 	test_must_fail git push testrepo main:frotz &&
 	check_push_result testrepo $the_first_commit heads/frotz tags/frotz
 
+'
+
+test_expect_success 'push with onelevel ref' '
+	mk_test testrepo heads/main &&
+	test_must_fail git push testrepo HEAD:refs/onelevel
 '
 
 test_expect_success 'push with colon-less refspec (1)' '
@@ -898,6 +925,13 @@ test_expect_success 'push --delete refuses empty string' '
 	test_must_fail git push testrepo --delete ""
 '
 
+test_expect_success 'push --delete onelevel refspecs' '
+	mk_test testrepo heads/main &&
+	git -C testrepo update-ref refs/onelevel refs/heads/main &&
+	git push testrepo --delete refs/onelevel &&
+	test_must_fail git -C testrepo rev-parse --verify refs/onelevel
+'
+
 test_expect_success 'warn on push to HEAD of non-bare repository' '
 	mk_test testrepo heads/main &&
 	(
@@ -1244,7 +1278,7 @@ test_expect_success 'fetch exact SHA1' '
 		# fetching the hidden object should fail by default
 		test_must_fail env GIT_TEST_PROTOCOL_VERSION=0 \
 			git fetch -v ../testrepo $the_commit:refs/heads/copy 2>err &&
-		test_i18ngrep "Server does not allow request for unadvertised object" err &&
+		test_grep "Server does not allow request for unadvertised object" err &&
 		test_must_fail git rev-parse --verify refs/heads/copy &&
 
 		# the server side can allow it to succeed
@@ -1346,7 +1380,7 @@ do
 				git fetch ../testrepo/.git $SHA1_3 2>err &&
 			# ideally we would insist this be on a "remote error:"
 			# line, but it is racy; see the commit message
-			test_i18ngrep "not our ref.*$SHA1_3\$" err
+			test_grep "not our ref.*$SHA1_3\$" err
 		)
 	'
 done
@@ -1384,7 +1418,7 @@ test_expect_success 'peeled advertisements are not considered ref tips' '
 	oid=$(git -C testrepo rev-parse mytag^{commit}) &&
 	test_must_fail env GIT_TEST_PROTOCOL_VERSION=0 \
 		git fetch testrepo $oid 2>err &&
-	test_i18ngrep "Server does not allow request for unadvertised object" err
+	test_grep "Server does not allow request for unadvertised object" err
 '
 
 test_expect_success 'pushing a specific ref applies remote.$name.push as refmap' '
